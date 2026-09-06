@@ -1,0 +1,26 @@
+; Engine configuration file.
+; Edit through Godot when possible; manual changes should remain minimal.
+
+config_version=5
+
+[application]
+
+config/name="Kimodo Motion Studio"
+run/main_scene="res://tests/fixtures/soma77_playback.tscn"
+
+[display]
+
+window/size/viewport_width=960
+window/size/viewport_height=540
+window/size/window_width_override=960
+window/size/window_height_override=540
+
+[editor_plugins]
+
+enabled=PackedStringArray("res://addons/kimodo_motion/plugin.cfg")
+
+[rendering]
+
+renderer/rendering_method="gl_compatibility"
+renderer/rendering_method.mobile="gl_compatibility"
+

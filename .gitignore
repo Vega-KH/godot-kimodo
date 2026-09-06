@@ -1,0 +1,4 @@
+.godot/
+.tmp_render/
+*.tmp
+*.log

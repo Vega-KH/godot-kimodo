@@ -1,0 +1,6 @@
+* text=auto
+*.gd text eol=lf
+*.tscn text eol=lf
+*.godot text eol=lf
+# Recorded fixtures are byte-for-byte provenance artifacts; never normalize.
+*.gltf -text
