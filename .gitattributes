@@ -3,5 +3,6 @@
 *.tscn text eol=lf
 *.godot text eol=lf
 # Recorded fixtures are byte-for-byte provenance artifacts; never normalize.
-*.gltf -text
-*.res -text
+*.gltf -text -diff
+*.json -text -diff
+*.res -text -diff

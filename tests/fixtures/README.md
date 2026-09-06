@@ -17,6 +17,12 @@ model weights, credentials, or personal paths. Kimodo model provenance and
 license information are available from NVIDIA; backend code is Apache-2.0.
 This fixture is not relicensed by the extension's MIT license.
 
+`soma77_capabilities.json` is the matching Goal 3 `GET /capabilities`
+response copied byte-for-byte from the same backend fixture set. Its expected
+SHA-256 is
+`b4f3b573fb9d926c65a76da08f0adaaf3f4c016f79ecbbe2507c040b50c6b219`.
+It drives offline typed-contract, incompatibility, and dock-state tests.
+
 ## Manual playback check
 
 1. Open this project in Godot 4.7.2.

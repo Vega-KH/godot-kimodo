@@ -30,6 +30,18 @@ function Invoke-GodotCheck {
 Invoke-GodotCheck -Name 'Editor plugin startup' -GodotArguments @(
     '--headless', '--editor', '--path', '.', '--quit'
 )
+Invoke-GodotCheck -Name 'Typed capability contract' -GodotArguments @(
+    '--headless', '--path', '.', '--script', 'res://tests/test_capabilities_parser.gd'
+)
+Invoke-GodotCheck -Name 'Asynchronous capability transport' -GodotArguments @(
+    '--headless', '--path', '.', '--script', 'res://tests/test_capabilities_client.gd'
+)
+Invoke-GodotCheck -Name 'AI Motion dock state and lifecycle' -GodotArguments @(
+    '--headless', '--path', '.', '--script', 'res://tests/test_ai_motion_dock.gd'
+)
+Invoke-GodotCheck -Name 'Editor plugin restart' -GodotArguments @(
+    '--headless', '--editor', '--path', '.', '--quit'
+)
 Invoke-GodotCheck -Name 'SOMA-77 fixture contract' -GodotArguments @(
     '--headless', '--path', '.', '--script', 'res://tests/test_soma77_fixture.gd'
 )
