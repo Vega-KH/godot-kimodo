@@ -5,7 +5,8 @@ with the local `kimodo-godot-server` backend.
 
 The project is at an early development milestone. Its current vertical slice
 loads a recorded MMCP SOMA-77 animation from memory, validates the imported
-skeleton and tracks headlessly, and provides a skeleton-only playback scene.
+skeleton and tracks headlessly, and bakes a self-contained native Godot scene
+and `AnimationLibrary` without runtime addon or backend dependencies.
 
 ## Reference environment
 
@@ -21,8 +22,9 @@ skeleton and tracks headlessly, and provides a skeleton-only playback scene.
   --headless --path . --script res://tests/test_soma77_fixture.gd
 ```
 
-See [the fixture guide](tests/fixtures/README.md) for provenance and manual
-playback instructions.
+See the [transport fixture guide](tests/fixtures/README.md) for provenance and
+the [native fixture guide](tests/native/README.md) for baking, dependency, and
+manual playback details.
 
 Run the complete Goal 4 checks, including plugin startup and a short playback
 scene run, with:
@@ -35,4 +37,3 @@ scene run, with:
 
 Original extension code is MIT licensed. Model, backend, and test-fixture
 provenance are recorded separately; no model weights are included.
-

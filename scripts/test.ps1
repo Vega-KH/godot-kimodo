@@ -33,9 +33,19 @@ Invoke-GodotCheck -Name 'Editor plugin startup' -GodotArguments @(
 Invoke-GodotCheck -Name 'SOMA-77 fixture contract' -GodotArguments @(
     '--headless', '--path', '.', '--script', 'res://tests/test_soma77_fixture.gd'
 )
+Invoke-GodotCheck -Name 'Native animation round trip' -GodotArguments @(
+    '--headless', '--path', '.', '--script', 'res://tests/test_native_roundtrip.gd'
+)
+Invoke-GodotCheck -Name 'Native runtime independence' -GodotArguments @(
+    '--headless', '--path', '.', '--script', 'res://tests/test_native_runtime.gd'
+)
 Invoke-GodotCheck -Name 'Playback scene smoke test' -GodotArguments @(
     '--headless', '--path', '.', '--scene',
     'res://tests/fixtures/soma77_playback.tscn', '--quit-after', '5'
+)
+Invoke-GodotCheck -Name 'Native playback scene smoke test' -GodotArguments @(
+    '--headless', '--path', '.', '--scene',
+    'res://tests/native/soma77_native_playback.tscn', '--quit-after', '5'
 )
 
 Write-Host 'PASS: all Godot checks completed without engine or script errors.'
