@@ -6,9 +6,13 @@ const Client := preload("res://addons/kimodo_motion/transport/mmcp_capabilities_
 const GenerationClient := preload("res://addons/kimodo_motion/transport/mmcp_generation_client.gd")
 const GenerationOptions := preload("res://addons/kimodo_motion/domain/generation_options.gd")
 const Preview := preload("res://addons/kimodo_motion/ui/soma77_preview.gd")
+const NativeAnimationBaker := preload(
+	"res://addons/kimodo_motion/animation/native_animation_baker.gd"
+)
 
 var _client: Node
 var _generation_client: Node
+var _editor_plugin: EditorPlugin
 var _url_edit: LineEdit
 var _action_button: Button
 var _status_label: Label
@@ -22,6 +26,7 @@ var _details_text: RichTextLabel
 var _prompt_edit: TextEdit
 var _duration_edit: SpinBox
 var _seed_edit: SpinBox
+var _diffusion_steps_edit: SpinBox
 var _generate_button: Button
 var _generation_status: Label
 var _generation_details_button: Button
@@ -29,11 +34,18 @@ var _generation_details_text: RichTextLabel
 var _preview: Control
 var _play_button: Button
 var _loop_toggle: CheckButton
+var _save_directory_edit: LineEdit
+var _save_name_edit: LineEdit
+var _save_button: Button
+var _save_status: Label
 
 
-func configure(client: Node, generation_client: Node = null) -> void:
+func configure(
+	client: Node, generation_client: Node = null, editor_plugin: EditorPlugin = null
+) -> void:
 	_client = client
 	_generation_client = generation_client
+	_editor_plugin = editor_plugin
 	if is_node_ready():
 		_bind_client()
 		_bind_generation_client()
@@ -128,28 +140,43 @@ func _build_ui() -> void:
 	_prompt_edit.wrap_mode = TextEdit.LINE_WRAPPING_BOUNDARY
 	add_child(_prompt_edit)
 
-	var options_row := HBoxContainer.new()
-	add_child(options_row)
+	var options_grid := GridContainer.new()
+	options_grid.columns = 2
+	options_grid.add_theme_constant_override("h_separation", 12)
+	options_grid.add_theme_constant_override("v_separation", 5)
+	add_child(options_grid)
 	var duration_label := Label.new()
 	duration_label.text = "Frames"
-	options_row.add_child(duration_label)
+	options_grid.add_child(duration_label)
 	_duration_edit = SpinBox.new()
 	_duration_edit.name = "DurationFrames"
 	_duration_edit.min_value = 1
 	_duration_edit.max_value = 900
 	_duration_edit.value = 30
 	_duration_edit.custom_minimum_size.x = 80.0
-	options_row.add_child(_duration_edit)
+	_duration_edit.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	options_grid.add_child(_duration_edit)
+	var steps_label := Label.new()
+	steps_label.text = "Denoising steps"
+	options_grid.add_child(steps_label)
+	_diffusion_steps_edit = SpinBox.new()
+	_diffusion_steps_edit.name = "DiffusionSteps"
+	_diffusion_steps_edit.min_value = 1
+	_diffusion_steps_edit.max_value = 100
+	_diffusion_steps_edit.value = 100
+	_diffusion_steps_edit.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	options_grid.add_child(_diffusion_steps_edit)
 	var seed_label := Label.new()
 	seed_label.text = "Seed"
-	options_row.add_child(seed_label)
+	options_grid.add_child(seed_label)
 	_seed_edit = SpinBox.new()
 	_seed_edit.name = "GenerationSeed"
 	_seed_edit.min_value = 0
 	_seed_edit.max_value = 2147483647
 	_seed_edit.value = 1234
 	_seed_edit.custom_minimum_size.x = 105.0
-	options_row.add_child(_seed_edit)
+	_seed_edit.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	options_grid.add_child(_seed_edit)
 
 	_generate_button = Button.new()
 	_generate_button.name = "GenerateAction"
@@ -194,6 +221,46 @@ func _build_ui() -> void:
 	_loop_toggle.button_pressed = true
 	_loop_toggle.toggled.connect(_on_loop_toggled)
 	playback_row.add_child(_loop_toggle)
+
+	add_child(HSeparator.new())
+	var save_title := Label.new()
+	save_title.text = "Save native take"
+	save_title.add_theme_font_size_override("font_size", 15)
+	add_child(save_title)
+	var save_grid := GridContainer.new()
+	save_grid.columns = 2
+	save_grid.add_theme_constant_override("h_separation", 12)
+	save_grid.add_theme_constant_override("v_separation", 5)
+	add_child(save_grid)
+	var directory_label := Label.new()
+	directory_label.text = "Directory"
+	save_grid.add_child(directory_label)
+	_save_directory_edit = LineEdit.new()
+	_save_directory_edit.name = "NativeTakeDirectory"
+	_save_directory_edit.text = "res://animations/kimodo"
+	_save_directory_edit.placeholder_text = "res://animations/kimodo"
+	_save_directory_edit.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	save_grid.add_child(_save_directory_edit)
+	var name_label := Label.new()
+	name_label.text = "Name"
+	save_grid.add_child(name_label)
+	_save_name_edit = LineEdit.new()
+	_save_name_edit.name = "NativeTakeName"
+	_save_name_edit.text = "kimodo_motion"
+	_save_name_edit.placeholder_text = "kimodo_motion"
+	_save_name_edit.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	save_grid.add_child(_save_name_edit)
+	_save_button = Button.new()
+	_save_button.name = "SaveNativeTake"
+	_save_button.text = "Save Native Take"
+	_save_button.disabled = true
+	_save_button.pressed.connect(_on_save_native_take_pressed)
+	add_child(_save_button)
+	_save_status = Label.new()
+	_save_status.name = "NativeTakeStatus"
+	_save_status.text = "Generate a validated motion before saving."
+	_save_status.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	add_child(_save_status)
 
 
 func _add_summary_row(grid: GridContainer, label_text: String, value: String, node_name: String) -> Label:
@@ -313,6 +380,7 @@ func _on_generate_pressed() -> void:
 	options.prompt = _prompt_edit.text
 	options.duration_frames = int(_duration_edit.value)
 	options.seed = int(_seed_edit.value)
+	options.diffusion_steps = int(_diffusion_steps_edit.value)
 	_generation_client.generate(_client.backend_url, _client.capabilities, options)
 
 
@@ -356,7 +424,9 @@ func _update_generation_availability() -> void:
 	_prompt_edit.editable = not generating
 	_duration_edit.editable = not generating
 	_seed_edit.editable = not generating
+	_diffusion_steps_edit.editable = not generating
 	_action_button.disabled = generating
+	_update_save_availability()
 
 
 func _on_motion_ready() -> void:
@@ -368,6 +438,7 @@ func _on_motion_ready() -> void:
 	controls.visible = true
 	_play_button.text = "Pause"
 	_update_generation_availability()
+	_update_save_availability()
 
 
 func _on_play_pause_pressed() -> void:
@@ -378,6 +449,46 @@ func _on_play_pause_pressed() -> void:
 
 func _on_loop_toggled(enabled: bool) -> void:
 	_preview.set_looping(enabled)
+
+
+func _on_save_native_take_pressed() -> void:
+	var directory := _save_directory_edit.text.strip_edges()
+	var take_name := _save_name_edit.text.strip_edges()
+	if not directory.begins_with("res://"):
+		_set_save_error("Directory must be project-relative and begin with res://.")
+		return
+	if take_name.is_empty():
+		_set_save_error("Take name cannot be empty.")
+		return
+	if _preview == null or not _preview.has_motion():
+		_set_save_error("There is no validated generated motion to save.")
+		return
+	var result := NativeAnimationBaker.bake(_preview.motion_scene(), directory, take_name)
+	if result.is_empty():
+		_set_save_error("Godot could not save the native take. See the Output panel for details.")
+		return
+	_save_status.modulate = Color(0.25, 0.85, 0.45)
+	_save_status.text = "Saved %s and %s" % [result["scene_path"], result["library_path"]]
+	_refresh_saved_resource(result["scene_path"])
+
+
+func _set_save_error(message: String) -> void:
+	_save_status.modulate = Color(1.0, 0.35, 0.3)
+	_save_status.text = message
+
+
+func _update_save_availability() -> void:
+	if _save_button == null:
+		return
+	_save_button.disabled = _preview == null or not _preview.has_motion()
+
+
+func _refresh_saved_resource(scene_path: String) -> void:
+	if _editor_plugin == null or not is_instance_valid(_editor_plugin):
+		return
+	var editor_interface := _editor_plugin.get_editor_interface()
+	editor_interface.get_resource_filesystem().scan()
+	editor_interface.get_file_system_dock().navigate_to_path(scene_path)
 
 
 func _toggle_generation_details() -> void:

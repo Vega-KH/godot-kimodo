@@ -27,6 +27,7 @@ func _init() -> void:
 	_check(request["segments"][0]["prompt"] == "A person walks forward.", "prompt is trimmed")
 	_check(request["segments"][0]["duration_frames"] == 30, "duration is encoded")
 	_check(request["options"]["seed"] == 1234, "seed is encoded")
+	_check(request["options"]["diffusion_steps"] == 100, "quality denoising default is encoded")
 	_check(request["options"]["num_samples"] == 1, "initial request asks for one sample")
 
 	options.prompt = "   "
@@ -34,6 +35,9 @@ func _init() -> void:
 	options.prompt = "walk"
 	options.duration_frames = 901
 	_check(not options.validate(capabilities.fps)["ok"], "overlong duration is rejected")
+	options.duration_frames = 30
+	options.diffusion_steps = 101
+	_check(not options.validate(capabilities.fps)["ok"], "unsupported denoising steps are rejected")
 
 	var motion_result := MotionResponse.parse(
 		FileAccess.get_file_as_bytes(MOTION_FIXTURE),

@@ -29,9 +29,13 @@ func _run() -> void:
 		var url: LineEdit = dock.find_child("BackendUrl", true, false)
 		var generate_action: Button = dock.find_child("GenerateAction", true, false)
 		var prompt: TextEdit = dock.find_child("MotionPrompt", true, false)
+		var diffusion_steps: SpinBox = dock.find_child("DiffusionSteps", true, false)
+		var save_action: Button = dock.find_child("SaveNativeTake", true, false)
 		_check(status.text.contains("Disconnected"), "cycle %d begins disconnected" % cycle)
 		_check(action.text == "Connect", "cycle %d offers Connect" % cycle)
 		_check(generate_action.disabled, "generation is disabled while disconnected")
+		_check(diffusion_steps.value == 100, "denoising control starts at the quality default")
+		_check(save_action.disabled, "native save is disabled without a validated preview")
 
 		client._set_state(Client.ConnectionState.CONNECTING, "Connecting for test…")
 		_check(status.text.contains("Connecting"), "connecting state is visible")
@@ -53,6 +57,7 @@ func _run() -> void:
 		generation._set_state(GenerationClient.GenerationState.GENERATING, "Generating for test…")
 		_check(generate_action.text == "Cancel Generation", "generation can be canceled")
 		_check(not prompt.editable, "generation inputs are stable in flight")
+		_check(not diffusion_steps.editable, "denoising steps are stable in flight")
 		_check(action.disabled, "connection cannot be refreshed during generation")
 		generation._set_state(
 			GenerationClient.GenerationState.ERROR,

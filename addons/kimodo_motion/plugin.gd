@@ -18,7 +18,7 @@ func _enter_tree() -> void:
 	_generation_client.name = "MmcpGenerationClient"
 	add_child(_generation_client)
 	_dock = Dock.new()
-	_dock.configure(_client, _generation_client)
+	_dock.configure(_client, _generation_client, self)
 	add_control_to_dock(EditorPlugin.DOCK_SLOT_RIGHT_UL, _dock)
 	print("[Kimodo Motion Studio] editor plugin enabled")
 

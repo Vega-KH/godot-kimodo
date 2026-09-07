@@ -54,6 +54,9 @@ Invoke-GodotCheck -Name 'SOMA-77 fixture contract' -GodotArguments @(
 Invoke-GodotCheck -Name 'Native animation round trip' -GodotArguments @(
     '--headless', '--path', '.', '--script', 'res://tests/test_native_roundtrip.gd'
 )
+Invoke-GodotCheck -Name 'Generated preview native save' -GodotArguments @(
+    '--headless', '--path', '.', '--script', 'res://tests/test_preview_native_save.gd'
+)
 Invoke-GodotCheck -Name 'Native runtime independence' -GodotArguments @(
     '--headless', '--path', '.', '--script', 'res://tests/test_native_runtime.gd'
 )

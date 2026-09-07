@@ -4,7 +4,7 @@ extends RefCounted
 var prompt := "A person walks forward."
 var duration_frames := 30
 var seed := 1234
-var diffusion_steps := 5
+var diffusion_steps := 100
 
 
 func validate(fps: float) -> Dictionary:

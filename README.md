@@ -45,15 +45,23 @@ three constraint types, and six contact channels. Stop the backend and press
 **Refresh** to exercise the recoverable error state; technical transport or
 contract details are expandable without blocking the editor.
 
-Once connected, enter a prompt, choose a frame count and seed, and press
-**Generate**. The request runs asynchronously and can be canceled. A valid
-response starts playing in the embedded SOMA-77 preview with Pause/Play and
-Loop controls. Generating another take replaces only the temporary preview;
-it does not overwrite fixtures or native animation assets.
+Once connected, enter a prompt and choose a frame count, denoising-step count,
+and seed, then press **Generate**. The request runs asynchronously and can be
+canceled. The default 100 denoising steps favors normal-quality previews; lower
+values trade quality for speed. A valid response starts playing in the embedded
+SOMA-77 preview with Pause/Play and Loop controls.
+
+To keep a generated result, enter a project-relative directory beginning with
+`res://` and a take name, then press **Save Native Take**. The dock creates a
+self-contained `.tscn` plus `.res` `AnimationLibrary`, selects the scene in the
+FileSystem dock, and adds a numeric suffix rather than overwriting an existing
+take. Saving does not interrupt or transfer ownership of the temporary preview,
+and a saved take remains usable after the backend stops.
 
 For a lightweight connection-only check, start the server with
 `--text-encoder-mode dummy`. For real prompt-driven generation on the reference
-machine, use the full encoder on CPU:
+machine, double-click `start.bat` in the backend checkout. The equivalent
+PowerShell command is:
 
 ```powershell
 cd C:\code\godot-kimodo\kimodo-godot-server
