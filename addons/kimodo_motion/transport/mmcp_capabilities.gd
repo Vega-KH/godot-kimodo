@@ -8,6 +8,7 @@ class ModelCapabilities extends RefCounted:
 	var model_id: String
 	var fps: float
 	var joint_names: Array[String]
+	var skeleton_payload: Dictionary
 	var constraint_types: Array[String]
 	var contact_joints: Array[String]
 	var response_formats: Array[String]
@@ -101,6 +102,7 @@ static func parse_payload(payload: Variant) -> Dictionary:
 	capabilities.model_id = model["id"]
 	capabilities.fps = float(model["fps"])
 	capabilities.joint_names = skeleton_result["joint_names"]
+	capabilities.skeleton_payload = skeleton.duplicate(true)
 	capabilities.constraint_types = constraints
 	capabilities.contact_joints = contacts
 	capabilities.response_formats = formats
@@ -132,6 +134,14 @@ static func _validate_soma77(skeleton: Dictionary) -> Dictionary:
 			)
 		seen[name] = true
 		names.append(name)
+		var rest_translation := _number_array(joint.get("rest_translation"), 3)
+		var rest_rotation := _number_array(joint.get("rest_rotation"), 4)
+		if not rest_translation or not rest_rotation:
+			return _error(
+				"invalid_skeleton",
+				"Canonical skeleton rest transforms are invalid.",
+				"Joint %s must contain finite translation[3] and rotation[4]." % name,
+			)
 	if root_count != 1:
 		return _error("invalid_skeleton", "Canonical skeleton must have exactly one root.")
 	if names != Contract.JOINT_NAMES:
@@ -141,6 +151,15 @@ static func _validate_soma77(skeleton: Dictionary) -> Dictionary:
 			"Received %d joints in a different order." % names.size(),
 		)
 	return {"ok": true, "joint_names": names}
+
+
+static func _number_array(value: Variant, expected_size: int) -> bool:
+	if not value is Array or value.size() != expected_size:
+		return false
+	for item in value:
+		if (not item is float and not item is int) or not is_finite(float(item)):
+			return false
+	return true
 
 
 static func _string_array(value: Variant, field_name: String) -> Dictionary:

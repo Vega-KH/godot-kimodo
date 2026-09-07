@@ -2,6 +2,7 @@ extends SceneTree
 
 const Capabilities := preload("res://addons/kimodo_motion/transport/mmcp_capabilities.gd")
 const Client := preload("res://addons/kimodo_motion/transport/mmcp_capabilities_client.gd")
+const GenerationClient := preload("res://addons/kimodo_motion/transport/mmcp_generation_client.gd")
 const Dock := preload("res://addons/kimodo_motion/ui/ai_motion_dock.gd")
 const FIXTURE := "res://tests/fixtures/soma77_capabilities.json"
 
@@ -16,16 +17,21 @@ func _run() -> void:
 	for cycle in 3:
 		var client := Client.new()
 		root.add_child(client)
+		var generation := GenerationClient.new()
+		root.add_child(generation)
 		var dock := Dock.new()
-		dock.configure(client)
+		dock.configure(client, generation)
 		root.add_child(dock)
 		await process_frame
 
 		var status: Label = dock.find_child("ConnectionStatus", true, false)
 		var action: Button = dock.find_child("ConnectionAction", true, false)
 		var url: LineEdit = dock.find_child("BackendUrl", true, false)
+		var generate_action: Button = dock.find_child("GenerateAction", true, false)
+		var prompt: TextEdit = dock.find_child("MotionPrompt", true, false)
 		_check(status.text.contains("Disconnected"), "cycle %d begins disconnected" % cycle)
 		_check(action.text == "Connect", "cycle %d offers Connect" % cycle)
+		_check(generate_action.disabled, "generation is disabled while disconnected")
 
 		client._set_state(Client.ConnectionState.CONNECTING, "Connecting for test…")
 		_check(status.text.contains("Connecting"), "connecting state is visible")
@@ -42,6 +48,24 @@ func _run() -> void:
 		_check(_label_text(dock, "JointsValue") == "SOMA-77 (77 joints)", "joint summary is shown")
 		_check(_label_text(dock, "ConstraintsValue").begins_with("3 —"), "constraints are shown")
 		_check(_label_text(dock, "ContactsValue") == "6 channels", "contacts are shown")
+		_check(not generate_action.disabled, "generation is enabled when Ready")
+
+		generation._set_state(GenerationClient.GenerationState.GENERATING, "Generating for test…")
+		_check(generate_action.text == "Cancel Generation", "generation can be canceled")
+		_check(not prompt.editable, "generation inputs are stable in flight")
+		_check(action.disabled, "connection cannot be refreshed during generation")
+		generation._set_state(
+			GenerationClient.GenerationState.ERROR,
+			"Generation failed for test.",
+			"HTTP status 500",
+		)
+		var generation_details_button: Button = dock.find_child(
+			"GenerationDetailsToggle", true, false
+		)
+		var generation_details: RichTextLabel = dock.find_child("GenerationDetails", true, false)
+		_check(generation_details_button.visible, "generation technical details are available")
+		generation_details_button.emit_signal("pressed")
+		_check(generation_details.visible, "generation technical details expand")
 
 		client.capabilities = null
 		client._set_state(Client.ConnectionState.ERROR, "Backend refused the request.", "HTTP status 503")
@@ -54,6 +78,7 @@ func _run() -> void:
 
 		dock.queue_free()
 		client.queue_free()
+		generation.queue_free()
 		await process_frame
 
 	_check(root.get_child_count() == 0, "dock/client lifecycle leaves no nodes behind")

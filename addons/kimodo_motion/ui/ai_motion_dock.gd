@@ -3,8 +3,12 @@ class_name AiMotionDock
 extends VBoxContainer
 
 const Client := preload("res://addons/kimodo_motion/transport/mmcp_capabilities_client.gd")
+const GenerationClient := preload("res://addons/kimodo_motion/transport/mmcp_generation_client.gd")
+const GenerationOptions := preload("res://addons/kimodo_motion/domain/generation_options.gd")
+const Preview := preload("res://addons/kimodo_motion/ui/soma77_preview.gd")
 
 var _client: Node
+var _generation_client: Node
 var _url_edit: LineEdit
 var _action_button: Button
 var _status_label: Label
@@ -15,12 +19,24 @@ var _constraints_label: Label
 var _contacts_label: Label
 var _details_button: Button
 var _details_text: RichTextLabel
+var _prompt_edit: TextEdit
+var _duration_edit: SpinBox
+var _seed_edit: SpinBox
+var _generate_button: Button
+var _generation_status: Label
+var _generation_details_button: Button
+var _generation_details_text: RichTextLabel
+var _preview: Control
+var _play_button: Button
+var _loop_toggle: CheckButton
 
 
-func configure(client: Node) -> void:
+func configure(client: Node, generation_client: Node = null) -> void:
 	_client = client
+	_generation_client = generation_client
 	if is_node_ready():
 		_bind_client()
+		_bind_generation_client()
 
 
 func _ready() -> void:
@@ -28,6 +44,7 @@ func _ready() -> void:
 	custom_minimum_size = Vector2(330.0, 0.0)
 	_build_ui()
 	_bind_client()
+	_bind_generation_client()
 
 
 func _build_ui() -> void:
@@ -95,6 +112,89 @@ func _build_ui() -> void:
 	_details_text.visible = false
 	add_child(_details_text)
 
+	add_child(HSeparator.new())
+	var generation_title := Label.new()
+	generation_title.text = "Generate motion"
+	generation_title.add_theme_font_size_override("font_size", 15)
+	add_child(generation_title)
+
+	var prompt_label := Label.new()
+	prompt_label.text = "Prompt"
+	add_child(prompt_label)
+	_prompt_edit = TextEdit.new()
+	_prompt_edit.name = "MotionPrompt"
+	_prompt_edit.text = "A person walks forward."
+	_prompt_edit.custom_minimum_size.y = 72.0
+	_prompt_edit.wrap_mode = TextEdit.LINE_WRAPPING_BOUNDARY
+	add_child(_prompt_edit)
+
+	var options_row := HBoxContainer.new()
+	add_child(options_row)
+	var duration_label := Label.new()
+	duration_label.text = "Frames"
+	options_row.add_child(duration_label)
+	_duration_edit = SpinBox.new()
+	_duration_edit.name = "DurationFrames"
+	_duration_edit.min_value = 1
+	_duration_edit.max_value = 900
+	_duration_edit.value = 30
+	_duration_edit.custom_minimum_size.x = 80.0
+	options_row.add_child(_duration_edit)
+	var seed_label := Label.new()
+	seed_label.text = "Seed"
+	options_row.add_child(seed_label)
+	_seed_edit = SpinBox.new()
+	_seed_edit.name = "GenerationSeed"
+	_seed_edit.min_value = 0
+	_seed_edit.max_value = 2147483647
+	_seed_edit.value = 1234
+	_seed_edit.custom_minimum_size.x = 105.0
+	options_row.add_child(_seed_edit)
+
+	_generate_button = Button.new()
+	_generate_button.name = "GenerateAction"
+	_generate_button.text = "Generate"
+	_generate_button.disabled = true
+	_generate_button.pressed.connect(_on_generate_pressed)
+	add_child(_generate_button)
+
+	_generation_status = Label.new()
+	_generation_status.name = "GenerationStatus"
+	_generation_status.text = "No motion generated yet."
+	_generation_status.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	add_child(_generation_status)
+	_generation_details_button = Button.new()
+	_generation_details_button.name = "GenerationDetailsToggle"
+	_generation_details_button.text = "Show generation details"
+	_generation_details_button.visible = false
+	_generation_details_button.pressed.connect(_toggle_generation_details)
+	add_child(_generation_details_button)
+	_generation_details_text = RichTextLabel.new()
+	_generation_details_text.name = "GenerationDetails"
+	_generation_details_text.fit_content = true
+	_generation_details_text.custom_minimum_size.y = 60.0
+	_generation_details_text.visible = false
+	add_child(_generation_details_text)
+
+	_preview = Preview.new()
+	_preview.visible = false
+	add_child(_preview)
+	var playback_row := HBoxContainer.new()
+	playback_row.name = "PlaybackControls"
+	playback_row.visible = false
+	add_child(playback_row)
+	_play_button = Button.new()
+	_play_button.name = "PlayPause"
+	_play_button.text = "Pause"
+	_play_button.pressed.connect(_on_play_pause_pressed)
+	playback_row.add_child(_play_button)
+	_loop_toggle = CheckButton.new()
+	_loop_toggle.name = "LoopMotion"
+	_loop_toggle.text = "Loop"
+	_loop_toggle.button_pressed = true
+	_loop_toggle.toggled.connect(_on_loop_toggled)
+	playback_row.add_child(_loop_toggle)
+
 
 func _add_summary_row(grid: GridContainer, label_text: String, value: String, node_name: String) -> Label:
 	var label := Label.new()
@@ -118,6 +218,21 @@ func _bind_client() -> void:
 	_apply_state(_client.state, _client.state_name(), _client.snapshot())
 
 
+func _bind_generation_client() -> void:
+	if _generation_client == null:
+		_update_generation_availability()
+		return
+	if not _generation_client.state_changed.is_connected(_on_generation_state_changed):
+		_generation_client.state_changed.connect(_on_generation_state_changed)
+	if not _generation_client.motion_ready.is_connected(_on_motion_ready):
+		_generation_client.motion_ready.connect(_on_motion_ready)
+	_apply_generation_state(
+		_generation_client.state,
+		_generation_client.state_name(),
+		_generation_client.snapshot(),
+	)
+
+
 func _on_action_pressed() -> void:
 	if _client == null:
 		return
@@ -129,6 +244,12 @@ func _on_action_pressed() -> void:
 
 func _on_client_state_changed(state: int, state_name: String, snapshot: Dictionary) -> void:
 	_apply_state(state, state_name, snapshot)
+	if (
+		state != Client.ConnectionState.READY
+		and _generation_client != null
+		and _generation_client.state == GenerationClient.GenerationState.GENERATING
+	):
+		_generation_client.cancel_generation()
 
 
 func _apply_state(state: int, state_name: String, snapshot: Dictionary) -> void:
@@ -172,10 +293,97 @@ func _apply_state(state: int, state_name: String, snapshot: Dictionary) -> void:
 	if details.is_empty():
 		_details_text.visible = false
 		_details_button.text = "Show technical details"
+	_update_generation_availability()
 
 
 func _toggle_details() -> void:
 	_details_text.visible = not _details_text.visible
 	_details_button.text = (
 		"Hide technical details" if _details_text.visible else "Show technical details"
+	)
+
+
+func _on_generate_pressed() -> void:
+	if _generation_client == null:
+		return
+	if _generation_client.state == GenerationClient.GenerationState.GENERATING:
+		_generation_client.cancel_generation()
+		return
+	var options := GenerationOptions.new()
+	options.prompt = _prompt_edit.text
+	options.duration_frames = int(_duration_edit.value)
+	options.seed = int(_seed_edit.value)
+	_generation_client.generate(_client.backend_url, _client.capabilities, options)
+
+
+func _on_generation_state_changed(state: int, state_name: String, snapshot: Dictionary) -> void:
+	_apply_generation_state(state, state_name, snapshot)
+
+
+func _apply_generation_state(state: int, state_name: String, snapshot: Dictionary) -> void:
+	if _generation_status == null:
+		return
+	var color := Color(0.7, 0.72, 0.76)
+	if state == GenerationClient.GenerationState.GENERATING:
+		color = Color(0.95, 0.72, 0.2)
+	elif state == GenerationClient.GenerationState.READY:
+		color = Color(0.25, 0.85, 0.45)
+	elif state == GenerationClient.GenerationState.ERROR:
+		color = Color(1.0, 0.35, 0.3)
+	_generation_status.text = "%s — %s" % [state_name, snapshot["message"]]
+	_generation_status.modulate = color
+	var details: String = snapshot["technical_details"]
+	_generation_details_text.text = details
+	_generation_details_button.visible = not details.is_empty()
+	if details.is_empty():
+		_generation_details_text.visible = false
+		_generation_details_button.text = "Show generation details"
+	_update_generation_availability()
+
+
+func _update_generation_availability() -> void:
+	if _generate_button == null:
+		return
+	var generating: bool = (
+		_generation_client != null
+		and _generation_client.state == GenerationClient.GenerationState.GENERATING
+	)
+	var connected: bool = _client != null and _client.state == Client.ConnectionState.READY
+	_generate_button.disabled = not connected and not generating
+	_generate_button.text = "Cancel Generation" if generating else (
+		"Generate Again" if _preview != null and _preview.has_motion() else "Generate"
+	)
+	_prompt_edit.editable = not generating
+	_duration_edit.editable = not generating
+	_seed_edit.editable = not generating
+	_action_button.disabled = generating
+
+
+func _on_motion_ready() -> void:
+	var motion: RefCounted = _generation_client.take_latest_motion()
+	if not _preview.set_motion(motion):
+		return
+	_preview.visible = true
+	var controls := _play_button.get_parent() as Control
+	controls.visible = true
+	_play_button.text = "Pause"
+	_update_generation_availability()
+
+
+func _on_play_pause_pressed() -> void:
+	var next_playing: bool = not _preview.is_playing()
+	_preview.set_playing(next_playing)
+	_play_button.text = "Pause" if next_playing else "Play"
+
+
+func _on_loop_toggled(enabled: bool) -> void:
+	_preview.set_looping(enabled)
+
+
+func _toggle_generation_details() -> void:
+	_generation_details_text.visible = not _generation_details_text.visible
+	_generation_details_button.text = (
+		"Hide generation details"
+		if _generation_details_text.visible
+		else "Show generation details"
 	)

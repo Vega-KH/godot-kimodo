@@ -36,6 +36,12 @@ Invoke-GodotCheck -Name 'Typed capability contract' -GodotArguments @(
 Invoke-GodotCheck -Name 'Asynchronous capability transport' -GodotArguments @(
     '--headless', '--path', '.', '--script', 'res://tests/test_capabilities_client.gd'
 )
+Invoke-GodotCheck -Name 'Typed generation and response contract' -GodotArguments @(
+    '--headless', '--path', '.', '--script', 'res://tests/test_generation_contract.gd'
+)
+Invoke-GodotCheck -Name 'Asynchronous generation and preview' -GodotArguments @(
+    '--headless', '--path', '.', '--script', 'res://tests/test_generation_client.gd'
+)
 Invoke-GodotCheck -Name 'AI Motion dock state and lifecycle' -GodotArguments @(
     '--headless', '--path', '.', '--script', 'res://tests/test_ai_motion_dock.gd'
 )

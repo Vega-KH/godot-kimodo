@@ -22,11 +22,17 @@ func stop() -> void:
 	_server.stop()
 
 
-func enqueue_json(body: String, delay_seconds: float = 0.0, status: int = 200) -> void:
+func enqueue_json(
+	body: String,
+	delay_seconds: float = 0.0,
+	status: int = 200,
+	content_type: String = "application/json",
+) -> void:
 	_responses.append({
 		"body": body,
 		"delay_seconds": delay_seconds,
 		"status": status,
+		"content_type": content_type,
 	})
 
 
@@ -54,6 +60,7 @@ func _process(_delta: float) -> void:
 			request_count += 1
 			var response: Dictionary = _responses.pop_front() if not _responses.is_empty() else {
 				"body": "{}", "delay_seconds": 0.0, "status": 500,
+				"content_type": "application/json",
 			}
 			connection["response"] = response
 			connection["ready_at"] = Time.get_ticks_msec() + int(
@@ -70,11 +77,12 @@ func _send_response(peer: StreamPeerTCP, response: Dictionary) -> void:
 		return
 	var body: String = response["body"]
 	var status: int = response["status"]
+	var content_type: String = response["content_type"]
 	var reason := "OK" if status == 200 else "Error"
 	var body_bytes := body.to_utf8_buffer()
 	var headers := (
 		"HTTP/1.1 %d %s\r\n" % [status, reason]
-		+ "Content-Type: application/json\r\n"
+		+ "Content-Type: %s\r\n" % content_type
 		+ "Content-Length: %d\r\n" % body_bytes.size()
 		+ "Connection: close\r\n\r\n"
 	).to_utf8_buffer()
