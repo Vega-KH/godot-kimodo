@@ -114,6 +114,10 @@ static func _retarget_animation(
 	animation.track_set_path(
 		hips_position_track, NodePath("%s:Hips" % TARGET_SKELETON_NAME)
 	)
+	var root_position_track := animation.add_track(Animation.TYPE_POSITION_3D)
+	animation.track_set_path(
+		root_position_track, NodePath("%s:Root" % TARGET_SKELETON_NAME)
+	)
 
 	for time in sample_times:
 		var source_globals := _sample_global_poses(
@@ -131,6 +135,9 @@ static func _retarget_animation(
 		var hips_index := target.find_bone("Hips")
 		var hips_pose: Transform3D = target_locals[hips_index]
 		animation.position_track_insert_key(hips_position_track, time, hips_pose.origin)
+		var root_index := target.find_bone("Root")
+		var root_pose: Transform3D = target_locals[root_index]
+		animation.position_track_insert_key(root_position_track, time, root_pose.origin)
 	return animation
 
 
@@ -152,6 +159,15 @@ static func _target_local_poses(
 		if parent_index >= 0:
 			parent_global = target_globals[parent_index]
 		var local_pose := target.get_bone_rest(target_index)
+		if target_name == "Root":
+			var source_hips := source.find_bone("Hips")
+			var root_delta := (
+				source_globals[source_hips].origin
+				- source_global_rests[source_hips].origin
+			)
+			# Planar locomotion belongs to the profile Root. Hips retains
+			# vertical pelvis motion relative to that traveling root.
+			local_pose.origin += Vector3(root_delta.x, 0.0, root_delta.z)
 		var source_name: StringName = MAP.source_for_target(target_name)
 		if not source_name.is_empty():
 			var source_index := source.find_bone(source_name)

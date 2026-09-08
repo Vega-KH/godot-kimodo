@@ -28,9 +28,12 @@ skeleton.
 For each mapped bone and sample, calculate the source bone's model-space
 rotation relative to its model-space rest and apply that delta to the target
 bone's model-space rest. Reconstruct target local rotations in hierarchy order.
-Keep target bone positions at their authored rests except for `Hips`, where
-source root displacement is preserved. Emit only mapped rotation tracks and
-the hips position track; unmapped target bones remain at rest.
+Keep target bone positions at their authored rests except for the locomotion
+split: horizontal source displacement moves profile `Root`, while vertical
+pelvis displacement remains local to `Hips`. This keeps the root-to-hips
+segment bounded instead of stretching back to the take's starting point. Emit
+only mapped rotation tracks plus root and hips position tracks; unmapped target
+bones remain at rest.
 
 The committed target fixture contains every bone from
 `SkeletonProfileHumanoid`, but has deterministic altered proportions and

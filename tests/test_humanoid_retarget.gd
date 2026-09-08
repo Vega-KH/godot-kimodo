@@ -157,7 +157,10 @@ func _validate_reloaded(
 	_check(animation != null, "saved target has the stable motion name")
 	if animation == null:
 		return
-	_check(animation.get_track_count() == 23, "saved target has 22 rotations plus hips translation")
+	_check(
+		animation.get_track_count() == 24,
+		"saved target has 22 rotations plus root and hips translations",
+	)
 	_check(is_equal_approx(animation.length, 29.0 / 30.0), "saved target preserves duration")
 	var animated_bones := {}
 	for track in animation.get_track_count():
@@ -169,7 +172,7 @@ func _validate_reloaded(
 			_check(_variant_is_finite(value), "animation key is finite")
 	for index in skeleton.get_bone_count():
 		var bone_name := skeleton.get_bone_name(index)
-		if not Map.TARGET_TO_SOURCE.has(String(bone_name)):
+		if bone_name != "Root" and not Map.TARGET_TO_SOURCE.has(String(bone_name)):
 			_check(not animated_bones.has(bone_name), "unmapped bone %s remains untracked" % bone_name)
 
 
@@ -205,16 +208,51 @@ func _validate_motion(source_root: Node, target_root: Node) -> void:
 	var source_animation := source_player.get_animation("motion")
 	var target_animation := target_player.get_animation("motion")
 	var source_track := _find_track(source_animation, "Hips", Animation.TYPE_POSITION_3D)
-	var target_track := _find_track(target_animation, "Hips", Animation.TYPE_POSITION_3D)
-	var start_delta: Vector3 = (
+	var root_track := _find_track(target_animation, "Root", Animation.TYPE_POSITION_3D)
+	var hips_track := _find_track(target_animation, "Hips", Animation.TYPE_POSITION_3D)
+	var source_delta: Vector3 = (
 		source_animation.position_track_interpolate(source_track, source_animation.length)
 		- source_animation.position_track_interpolate(source_track, 0.0)
 	)
-	var target_delta: Vector3 = (
-		target_animation.position_track_interpolate(target_track, target_animation.length)
-		- target_animation.position_track_interpolate(target_track, 0.0)
+	var root_delta: Vector3 = (
+		target_animation.position_track_interpolate(root_track, target_animation.length)
+		- target_animation.position_track_interpolate(root_track, 0.0)
 	)
-	_check(start_delta.distance_to(target_delta) <= POSITION_TOLERANCE, "root travel is preserved")
+	var hips_delta: Vector3 = (
+		target_animation.position_track_interpolate(hips_track, target_animation.length)
+		- target_animation.position_track_interpolate(hips_track, 0.0)
+	)
+	_check(
+		Vector2(source_delta.x, source_delta.z).distance_to(Vector2(root_delta.x, root_delta.z))
+		<= POSITION_TOLERANCE,
+		"planar travel is preserved on Root",
+	)
+	_check(absf(root_delta.y) <= POSITION_TOLERANCE, "Root stays on its authored vertical plane")
+	_check(absf(hips_delta.x) <= POSITION_TOLERANCE, "Hips has no local X travel")
+	_check(absf(hips_delta.z) <= POSITION_TOLERANCE, "Hips has no local Z travel")
+	_check(
+		absf(source_delta.y - hips_delta.y) <= POSITION_TOLERANCE,
+		"vertical pelvis travel is preserved on Hips",
+	)
+	_validate_root_hips_segment(target_skeleton, target_player, target_animation.length)
+
+
+func _validate_root_hips_segment(
+	skeleton: Skeleton3D, player: AnimationPlayer, animation_length: float
+) -> void:
+	var root_index := skeleton.find_bone("Root")
+	var hips_index := skeleton.find_bone("Hips")
+	for ratio in [0.0, 0.25, 0.5, 0.75, 1.0]:
+		player.seek(animation_length * ratio, true)
+		skeleton.force_update_all_bone_transforms()
+		var root_position := skeleton.get_bone_global_pose(root_index).origin
+		var hips_position := skeleton.get_bone_global_pose(hips_index).origin
+		var offset := hips_position - root_position
+		_check(
+			Vector2(offset.x, offset.z).length() <= POSITION_TOLERANCE,
+			"Root-to-Hips segment stays vertically aligned at %.2f" % ratio,
+		)
+		_check(offset.length() < 1.1, "Root-to-Hips segment stays bounded at %.2f" % ratio)
 
 
 func _validate_dependency_closure(path: String) -> void:

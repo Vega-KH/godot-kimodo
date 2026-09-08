@@ -36,7 +36,8 @@ contact values themselves are not copied into the native target library.
 - `fixtures/godot_humanoid_a_pose.tscn`: deterministic target rest fixture.
 - `generated/soma77_walk_humanoid.tscn`: self-contained target playback scene.
 - `generated/soma77_walk_humanoid.res`: target `AnimationLibrary` named
-  `motion` with 22 rotation tracks and one hips-position track.
+  `motion` with 22 rotation tracks plus root and hips position tracks. Planar
+  locomotion travels on `Root`; vertical pelvis motion remains on `Hips`.
 
 Regenerate the target rest fixture and reviewable animation from the repository
 root with:
