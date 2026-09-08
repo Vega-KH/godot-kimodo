@@ -23,7 +23,10 @@ func _run() -> void:
 		dock.configure(client, generation)
 		root.add_child(dock)
 		await process_frame
+		dock.size = Vector2(330.0, 400.0)
+		await process_frame
 
+		var scroll: ScrollContainer = dock.find_child("DockScroll", true, false)
 		var status: Label = dock.find_child("ConnectionStatus", true, false)
 		var action: Button = dock.find_child("ConnectionAction", true, false)
 		var url: LineEdit = dock.find_child("BackendUrl", true, false)
@@ -32,6 +35,19 @@ func _run() -> void:
 		var diffusion_steps: SpinBox = dock.find_child("DiffusionSteps", true, false)
 		var save_action: Button = dock.find_child("SaveNativeTake", true, false)
 		_check(status.text.contains("Disconnected"), "cycle %d begins disconnected" % cycle)
+		_check(scroll != null, "dock content is wrapped in a scroll container")
+		_check(
+			scroll.vertical_scroll_mode == ScrollContainer.SCROLL_MODE_AUTO,
+			"vertical scrolling is automatic",
+		)
+		_check(
+			scroll.horizontal_scroll_mode == ScrollContainer.SCROLL_MODE_DISABLED,
+			"horizontal scrolling stays disabled",
+		)
+		_check(scroll.get_v_scroll_bar().visible, "vertical scrollbar appears in a short dock")
+		scroll.scroll_vertical = int(scroll.get_v_scroll_bar().max_value)
+		await process_frame
+		_check(scroll.scroll_vertical > 0, "dock can scroll to controls below the viewport")
 		_check(action.text == "Connect", "cycle %d offers Connect" % cycle)
 		_check(generate_action.disabled, "generation is disabled while disconnected")
 		_check(diffusion_steps.value == 100, "denoising control starts at the quality default")

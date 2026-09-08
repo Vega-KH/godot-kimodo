@@ -13,6 +13,7 @@ const NativeAnimationBaker := preload(
 var _client: Node
 var _generation_client: Node
 var _editor_plugin: EditorPlugin
+var _content: VBoxContainer
 var _url_edit: LineEdit
 var _action_button: Button
 var _status_label: Label
@@ -60,23 +61,35 @@ func _ready() -> void:
 
 
 func _build_ui() -> void:
+	var scroll := ScrollContainer.new()
+	scroll.name = "DockScroll"
+	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	scroll.vertical_scroll_mode = ScrollContainer.SCROLL_MODE_AUTO
+	scroll.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	add_child(scroll)
+	_content = VBoxContainer.new()
+	_content.name = "DockContents"
+	_content.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	scroll.add_child(_content)
+
 	var title := Label.new()
 	title.text = "Kimodo Motion Studio"
 	title.add_theme_font_size_override("font_size", 18)
-	add_child(title)
+	_content.add_child(title)
 
 	var subtitle := Label.new()
 	subtitle.text = "Local motion-generation backend"
 	subtitle.modulate = Color(0.75, 0.78, 0.82)
-	add_child(subtitle)
+	_content.add_child(subtitle)
 
-	add_child(HSeparator.new())
+	_content.add_child(HSeparator.new())
 	var url_label := Label.new()
 	url_label.text = "Backend URL"
-	add_child(url_label)
+	_content.add_child(url_label)
 
 	var row := HBoxContainer.new()
-	add_child(row)
+	_content.add_child(row)
 	_url_edit = LineEdit.new()
 	_url_edit.name = "BackendUrl"
 	_url_edit.text = Client.DEFAULT_URL
@@ -93,18 +106,18 @@ func _build_ui() -> void:
 	_status_label.name = "ConnectionStatus"
 	_status_label.text = "● Disconnected — Backend connection is idle."
 	_status_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	add_child(_status_label)
+	_content.add_child(_status_label)
 
 	var summary_title := Label.new()
 	summary_title.text = "Capability summary"
 	summary_title.add_theme_font_size_override("font_size", 15)
-	add_child(summary_title)
+	_content.add_child(summary_title)
 
 	var grid := GridContainer.new()
 	grid.columns = 2
 	grid.add_theme_constant_override("h_separation", 14)
 	grid.add_theme_constant_override("v_separation", 5)
-	add_child(grid)
+	_content.add_child(grid)
 	_model_label = _add_summary_row(grid, "Model", "—", "ModelValue")
 	_fps_label = _add_summary_row(grid, "Frame rate", "—", "FpsValue")
 	_joints_label = _add_summary_row(grid, "Skeleton", "—", "JointsValue")
@@ -116,35 +129,35 @@ func _build_ui() -> void:
 	_details_button.text = "Show technical details"
 	_details_button.visible = false
 	_details_button.pressed.connect(_toggle_details)
-	add_child(_details_button)
+	_content.add_child(_details_button)
 	_details_text = RichTextLabel.new()
 	_details_text.name = "TechnicalDetails"
 	_details_text.fit_content = true
 	_details_text.custom_minimum_size.y = 72.0
 	_details_text.visible = false
-	add_child(_details_text)
+	_content.add_child(_details_text)
 
-	add_child(HSeparator.new())
+	_content.add_child(HSeparator.new())
 	var generation_title := Label.new()
 	generation_title.text = "Generate motion"
 	generation_title.add_theme_font_size_override("font_size", 15)
-	add_child(generation_title)
+	_content.add_child(generation_title)
 
 	var prompt_label := Label.new()
 	prompt_label.text = "Prompt"
-	add_child(prompt_label)
+	_content.add_child(prompt_label)
 	_prompt_edit = TextEdit.new()
 	_prompt_edit.name = "MotionPrompt"
 	_prompt_edit.text = "A person walks forward."
 	_prompt_edit.custom_minimum_size.y = 72.0
 	_prompt_edit.wrap_mode = TextEdit.LINE_WRAPPING_BOUNDARY
-	add_child(_prompt_edit)
+	_content.add_child(_prompt_edit)
 
 	var options_grid := GridContainer.new()
 	options_grid.columns = 2
 	options_grid.add_theme_constant_override("h_separation", 12)
 	options_grid.add_theme_constant_override("v_separation", 5)
-	add_child(options_grid)
+	_content.add_child(options_grid)
 	var duration_label := Label.new()
 	duration_label.text = "Frames"
 	options_grid.add_child(duration_label)
@@ -183,33 +196,33 @@ func _build_ui() -> void:
 	_generate_button.text = "Generate"
 	_generate_button.disabled = true
 	_generate_button.pressed.connect(_on_generate_pressed)
-	add_child(_generate_button)
+	_content.add_child(_generate_button)
 
 	_generation_status = Label.new()
 	_generation_status.name = "GenerationStatus"
 	_generation_status.text = "No motion generated yet."
 	_generation_status.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	add_child(_generation_status)
+	_content.add_child(_generation_status)
 	_generation_details_button = Button.new()
 	_generation_details_button.name = "GenerationDetailsToggle"
 	_generation_details_button.text = "Show generation details"
 	_generation_details_button.visible = false
 	_generation_details_button.pressed.connect(_toggle_generation_details)
-	add_child(_generation_details_button)
+	_content.add_child(_generation_details_button)
 	_generation_details_text = RichTextLabel.new()
 	_generation_details_text.name = "GenerationDetails"
 	_generation_details_text.fit_content = true
 	_generation_details_text.custom_minimum_size.y = 60.0
 	_generation_details_text.visible = false
-	add_child(_generation_details_text)
+	_content.add_child(_generation_details_text)
 
 	_preview = Preview.new()
 	_preview.visible = false
-	add_child(_preview)
+	_content.add_child(_preview)
 	var playback_row := HBoxContainer.new()
 	playback_row.name = "PlaybackControls"
 	playback_row.visible = false
-	add_child(playback_row)
+	_content.add_child(playback_row)
 	_play_button = Button.new()
 	_play_button.name = "PlayPause"
 	_play_button.text = "Pause"
@@ -222,16 +235,16 @@ func _build_ui() -> void:
 	_loop_toggle.toggled.connect(_on_loop_toggled)
 	playback_row.add_child(_loop_toggle)
 
-	add_child(HSeparator.new())
+	_content.add_child(HSeparator.new())
 	var save_title := Label.new()
 	save_title.text = "Save native take"
 	save_title.add_theme_font_size_override("font_size", 15)
-	add_child(save_title)
+	_content.add_child(save_title)
 	var save_grid := GridContainer.new()
 	save_grid.columns = 2
 	save_grid.add_theme_constant_override("h_separation", 12)
 	save_grid.add_theme_constant_override("v_separation", 5)
-	add_child(save_grid)
+	_content.add_child(save_grid)
 	var directory_label := Label.new()
 	directory_label.text = "Directory"
 	save_grid.add_child(directory_label)
@@ -255,12 +268,12 @@ func _build_ui() -> void:
 	_save_button.text = "Save Native Take"
 	_save_button.disabled = true
 	_save_button.pressed.connect(_on_save_native_take_pressed)
-	add_child(_save_button)
+	_content.add_child(_save_button)
 	_save_status = Label.new()
 	_save_status.name = "NativeTakeStatus"
 	_save_status.text = "Generate a validated motion before saving."
 	_save_status.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	add_child(_save_status)
+	_content.add_child(_save_status)
 
 
 func _add_summary_row(grid: GridContainer, label_text: String, value: String, node_name: String) -> Label:

@@ -58,6 +58,9 @@ FileSystem dock, and adds a numeric suffix rather than overwriting an existing
 take. Saving does not interrupt or transfer ownership of the temporary preview,
 and a saved take remains usable after the backend stops.
 
+The entire dock scrolls vertically when its contents exceed the available
+editor height, including after the animation preview becomes visible.
+
 For a lightweight connection-only check, start the server with
 `--text-encoder-mode dummy`. For real prompt-driven generation on the reference
 machine, double-click `start.bat` in the backend checkout. The equivalent
