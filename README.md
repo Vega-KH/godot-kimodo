@@ -8,7 +8,8 @@ connects an editor dock asynchronously to a loopback MMCP backend, submits
 typed text-to-motion requests, validates the returned SOMA-77 glTF, and plays
 the result immediately in a line-skeleton preview. Recorded motion can also be
 validated and baked into a self-contained native Godot scene and
-`AnimationLibrary`.
+`AnimationLibrary`. A saved SOMA-77 take can additionally be retargeted to a
+distinct Godot `SkeletonProfileHumanoid` fixture with explicit rest correction.
 
 ## Reference environment
 
@@ -26,7 +27,9 @@ validated and baked into a self-contained native Godot scene and
 
 See the [transport fixture guide](tests/fixtures/README.md) for provenance and
 the [native fixture guide](tests/native/README.md) for baking, dependency, and
-manual playback details.
+manual playback details. The [humanoid retarget guide](tests/retargeting/README.md)
+records the 22-bone body map, ignored joints, generated A-pose fixture, and
+side-by-side acceptance scene.
 
 Run the complete offline suite, including capability transport failure cases,
 plugin restart, native baking, and short playback scene runs, with:
