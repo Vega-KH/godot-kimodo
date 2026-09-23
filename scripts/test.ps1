@@ -63,6 +63,9 @@ Invoke-GodotCheck -Name 'Native runtime independence' -GodotArguments @(
 Invoke-GodotCheck -Name 'Humanoid retarget and native reload' -GodotArguments @(
     '--headless', '--path', '.', '--script', 'res://tests/test_humanoid_retarget.gd'
 )
+Invoke-GodotCheck -Name 'Humanoid dock preview and save lifecycle' -GodotArguments @(
+    '--headless', '--path', '.', '--script', 'res://tests/test_humanoid_dock_retarget.gd'
+)
 Invoke-GodotCheck -Name 'Playback scene smoke test' -GodotArguments @(
     '--headless', '--path', '.', '--scene',
     'res://tests/fixtures/soma77_playback.tscn', '--quit-after', '5'

@@ -12,8 +12,10 @@ var _capture_frame := 0
 
 func _ready() -> void:
 	_capture_directory = _argument_value("--capture-dir")
-	_add_rig(SOURCE_SCENE.instantiate(), Vector3(-0.9, 0.0, 0.0), Color(0.1, 0.85, 1.0))
-	_add_rig(TARGET_SCENE.instantiate(), Vector3(0.9, 0.0, 0.0), Color(1.0, 0.35, 0.8))
+	var source_scene := _scene_argument("--source-scene", SOURCE_SCENE)
+	var target_scene := _scene_argument("--target-scene", TARGET_SCENE)
+	_add_rig(source_scene.instantiate(), Vector3(-0.9, 0.0, 0.0), Color(0.1, 0.85, 1.0))
+	_add_rig(target_scene.instantiate(), Vector3(0.9, 0.0, 0.0), Color(1.0, 0.35, 0.8))
 
 	var camera := Camera3D.new()
 	camera.position = Vector3(3.1, 1.45, 4.8)
@@ -91,6 +93,14 @@ func _argument_value(flag: String) -> String:
 		if arguments[index] == flag and index + 1 < arguments.size():
 			return arguments[index + 1]
 	return ""
+
+
+func _scene_argument(flag: String, fallback: PackedScene) -> PackedScene:
+	var path := _argument_value(flag)
+	if path.is_empty():
+		return fallback
+	var loaded := ResourceLoader.load(path, "PackedScene", ResourceLoader.CACHE_MODE_IGNORE)
+	return loaded as PackedScene
 
 
 func _find_first(node: Node, type_name: StringName) -> Node:

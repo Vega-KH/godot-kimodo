@@ -52,10 +52,17 @@ Once connected, enter a prompt and choose a frame count, denoising-step count,
 and seed, then press **Generate**. The request runs asynchronously and can be
 canceled. The default 100 denoising steps favors normal-quality previews; lower
 values trade quality for speed. A valid response starts playing in the embedded
-SOMA-77 preview with Pause/Play and Loop controls.
+SOMA-77 preview with shared Pause/Play, Loop, and timeline-scrub controls.
+
+Press **Retarget to Humanoid** to build a non-destructive in-memory copy on
+the repository's 56-bone Godot humanoid A-pose. The preview selector switches
+between the cyan SOMA-77 source and pink humanoid result while both remain at
+the same playback time. Enter a separate humanoid take name and press **Save
+Humanoid Take** to create a self-contained `.tscn` and `.res`; errors and
+output paths are reported independently from generation and source saving.
 
 To keep a generated result, enter a project-relative directory beginning with
-`res://` and a take name, then press **Save Native Take**. The dock creates a
+`res://` and a take name, then press **Save SOMA-77 Native Take**. The dock creates a
 self-contained `.tscn` plus `.res` `AnimationLibrary`, selects the scene in the
 FileSystem dock, and adds a numeric suffix rather than overwriting an existing
 take. Saving does not interrupt or transfer ownership of the temporary preview,
@@ -96,7 +103,9 @@ The corresponding end-to-end dock-generation check is:
 ```powershell
 & 'C:\Godot-472\Godot_v4.7.2-stable_win64_console.exe' `
   --headless --path . --script res://tests/test_live_generation.gd -- `
-  --url http://127.0.0.1:8000
+  --url http://127.0.0.1:8000 `
+  --native-dir res://tests/.live `
+  --humanoid-dir res://tests/.live
 ```
 
 ## License

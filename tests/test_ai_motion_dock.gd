@@ -34,6 +34,9 @@ func _run() -> void:
 		var prompt: TextEdit = dock.find_child("MotionPrompt", true, false)
 		var diffusion_steps: SpinBox = dock.find_child("DiffusionSteps", true, false)
 		var save_action: Button = dock.find_child("SaveNativeTake", true, false)
+		var retarget_action: Button = dock.find_child("RetargetHumanoid", true, false)
+		var humanoid_save_action: Button = dock.find_child("SaveHumanoidTake", true, false)
+		var preview_selection: OptionButton = dock.find_child("PreviewSelection", true, false)
 		_check(status.text.contains("Disconnected"), "cycle %d begins disconnected" % cycle)
 		_check(scroll != null, "dock content is wrapped in a scroll container")
 		_check(
@@ -52,6 +55,9 @@ func _run() -> void:
 		_check(generate_action.disabled, "generation is disabled while disconnected")
 		_check(diffusion_steps.value == 100, "denoising control starts at the quality default")
 		_check(save_action.disabled, "native save is disabled without a validated preview")
+		_check(retarget_action.disabled, "retarget is disabled without a validated preview")
+		_check(humanoid_save_action.disabled, "humanoid save is disabled without a retarget")
+		_check(not preview_selection.visible, "preview selection is hidden before retargeting")
 
 		client._set_state(Client.ConnectionState.CONNECTING, "Connecting for test…")
 		_check(status.text.contains("Connecting"), "connecting state is visible")

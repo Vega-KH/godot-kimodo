@@ -10,10 +10,20 @@ var _player: AnimationPlayer
 var _lines: MeshInstance3D
 var _animation_name: StringName
 var _looping := true
+var _preview_name := "MotionPreview"
+var _line_color := Color(0.25, 0.95, 0.65)
+
+
+func configure(preview_name: String, line_color: Color) -> void:
+	_preview_name = preview_name
+	_line_color = line_color
+	name = _preview_name
+	if _lines != null:
+		(_lines.material_override as StandardMaterial3D).albedo_color = _line_color
 
 
 func _ready() -> void:
-	name = "MotionPreview"
+	name = _preview_name
 	custom_minimum_size = Vector2(320.0, 250.0)
 	size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	stretch = true
@@ -84,6 +94,22 @@ func animation_player() -> AnimationPlayer:
 	return _player
 
 
+func seek(time: float) -> void:
+	if _player == null:
+		return
+	_player.seek(clampf(time, 0.0, animation_length()), true)
+
+
+func current_position() -> float:
+	return _player.current_animation_position if _player != null else 0.0
+
+
+func animation_length() -> float:
+	if _player == null or not _player.has_animation(_animation_name):
+		return 0.0
+	return _player.get_animation(_animation_name).length
+
+
 func _exit_tree() -> void:
 	clear_motion()
 
@@ -121,7 +147,7 @@ func _build_viewport() -> void:
 	_lines.name = "AnimatedSkeletonLines"
 	var material := StandardMaterial3D.new()
 	material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-	material.albedo_color = Color(0.25, 0.95, 0.65)
+	material.albedo_color = _line_color
 	material.vertex_color_use_as_albedo = true
 	_lines.material_override = material
 	_world_root.add_child(_lines)
@@ -142,7 +168,7 @@ func _process(_delta: float) -> void:
 		var parent_position := _lines.to_local(
 			_skeleton.to_global(_skeleton.get_bone_global_pose(parent_index).origin)
 		)
-		mesh.surface_set_color(Color(0.25, 0.95, 0.65))
+		mesh.surface_set_color(_line_color)
 		mesh.surface_add_vertex(parent_position)
 		mesh.surface_add_vertex(child_position)
 	mesh.surface_end()

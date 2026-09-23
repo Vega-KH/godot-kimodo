@@ -14,6 +14,8 @@ func _run() -> void:
 	var output_path := ""
 	var native_directory := ""
 	var native_name := "goal8_live"
+	var humanoid_directory := ""
+	var humanoid_name := "goal10_live_humanoid"
 	var arguments := OS.get_cmdline_user_args()
 	for index in arguments.size():
 		if arguments[index] == "--url" and index + 1 < arguments.size():
@@ -24,6 +26,10 @@ func _run() -> void:
 			native_directory = arguments[index + 1]
 		elif arguments[index] == "--native-name" and index + 1 < arguments.size():
 			native_name = arguments[index + 1]
+		elif arguments[index] == "--humanoid-dir" and index + 1 < arguments.size():
+			humanoid_directory = arguments[index + 1]
+		elif arguments[index] == "--humanoid-name" and index + 1 < arguments.size():
+			humanoid_name = arguments[index + 1]
 
 	var capabilities := CapabilitiesClient.new()
 	root.add_child(capabilities)
@@ -63,6 +69,15 @@ func _run() -> void:
 	if not preview.has_motion() or preview.skeleton().get_bone_count() != 77:
 		_fail("live result did not reach the dock preview as SOMA-77")
 		return
+	var retarget_button := dock.find_child("RetargetHumanoid", true, false) as Button
+	if retarget_button.disabled:
+		_fail("humanoid retarget did not enable after live generation")
+		return
+	retarget_button.emit_signal("pressed")
+	var humanoid: Control = dock.find_child("HumanoidPreview", true, false)
+	if not humanoid.has_motion() or humanoid.skeleton().get_bone_count() != 56:
+		_fail("live result did not retarget to the 56-bone humanoid preview")
+		return
 	if not output_path.is_empty():
 		var output := FileAccess.open(output_path, FileAccess.WRITE)
 		if output == null:
@@ -85,9 +100,24 @@ func _run() -> void:
 		if not FileAccess.file_exists(scene_path) or not FileAccess.file_exists(library_path):
 			_fail("live preview did not save native assets")
 			return
+	if not humanoid_directory.is_empty():
+		var humanoid_dir: LineEdit = dock.find_child("HumanoidTakeDirectory", true, false)
+		var humanoid_take_name: LineEdit = dock.find_child("HumanoidTakeName", true, false)
+		humanoid_dir.text = humanoid_directory
+		humanoid_take_name.text = humanoid_name
+		var humanoid_save := dock.find_child("SaveHumanoidTake", true, false) as Button
+		if humanoid_save.disabled:
+			_fail("humanoid save did not enable after live retarget")
+			return
+		humanoid_save.emit_signal("pressed")
+		var humanoid_scene := humanoid_directory.path_join(humanoid_name + ".tscn")
+		var humanoid_library := humanoid_directory.path_join(humanoid_name + ".res")
+		if not FileAccess.file_exists(humanoid_scene) or not FileAccess.file_exists(humanoid_library):
+			_fail("live humanoid preview did not save native assets")
+			return
 	print(
-		"PASS: live dock generation/save — prompt=%s steps=%d bytes=%d bones=%d playing=%s"
-		% [prompt.text, int(steps.value), generation.last_response_bytes.size(), preview.skeleton().get_bone_count(), preview.is_playing()]
+		"PASS: live dock generate/retarget/save — prompt=%s steps=%d bytes=%d source_bones=%d humanoid_bones=%d playing=%s"
+		% [prompt.text, int(steps.value), generation.last_response_bytes.size(), preview.skeleton().get_bone_count(), humanoid.skeleton().get_bone_count(), preview.is_playing()]
 	)
 	dock.queue_free()
 	capabilities.queue_free()

@@ -7,32 +7,70 @@ const PLAYER_NODE_NAME := "AnimationPlayer"
 const ANIMATION_NAME := "motion"
 
 
+class RetargetedMotion extends RefCounted:
+	var scene: Node
+	var animation_name: StringName = &"motion"
+	var duration_seconds: float
+	var mapped_bone_count: int
+
+
 static func bake(
 	source_root: Node,
 	target_template_root: Node,
 	output_directory: String,
 	requested_stem: String = "kimodo_humanoid_motion",
 ) -> Dictionary:
+	var motion := create_motion(source_root, target_template_root)
+	if motion == null:
+		return {}
+	var result := save_motion(motion.scene, output_directory, requested_stem)
+	motion.scene.free()
+	motion.scene = null
+	return result
+
+
+static func create_motion(source_root: Node, target_template_root: Node) -> RetargetedMotion:
 	var source_skeleton := _find_first(source_root, "Skeleton3D") as Skeleton3D
 	var source_player := _find_first(source_root, "AnimationPlayer") as AnimationPlayer
 	var target_template := _find_first(target_template_root, "Skeleton3D") as Skeleton3D
 	if source_skeleton == null or source_player == null or target_template == null:
 		push_error("Retargeting requires source motion and target humanoid skeletons")
-		return {}
+		return null
 	var mapping_error := MAP.validate(source_skeleton, target_template)
 	if not mapping_error.is_empty():
 		push_error(mapping_error)
-		return {}
+		return null
 	var source_names := source_player.get_animation_list()
 	if source_names.size() != 1:
 		push_error("Expected exactly one source animation, found %d" % source_names.size())
-		return {}
+		return null
 	var source_animation := source_player.get_animation(source_names[0])
 	var target_animation := _retarget_animation(
 		source_skeleton, source_animation, target_template
 	)
 	if target_animation == null:
+		return null
+	var motion := RetargetedMotion.new()
+	motion.scene = _create_output_root(target_template, target_animation)
+	motion.duration_seconds = target_animation.length
+	motion.mapped_bone_count = MAP.REQUIRED_TARGETS.size()
+	return motion
+
+
+static func save_motion(
+	retargeted_root: Node,
+	output_directory: String,
+	requested_stem: String = "kimodo_humanoid_motion",
+) -> Dictionary:
+	var source_skeleton := _find_first(retargeted_root, "Skeleton3D") as Skeleton3D
+	var source_player := _find_first(retargeted_root, "AnimationPlayer") as AnimationPlayer
+	if source_skeleton == null or source_player == null:
+		push_error("Cannot save humanoid motion without its skeleton and player")
 		return {}
+	if not source_player.has_animation(ANIMATION_NAME):
+		push_error("Cannot save humanoid motion without animation '%s'" % ANIMATION_NAME)
+		return {}
+	var source_animation := source_player.get_animation(ANIMATION_NAME)
 
 	var absolute_directory := ProjectSettings.globalize_path(output_directory)
 	if DirAccess.make_dir_recursive_absolute(absolute_directory) != OK:
@@ -43,7 +81,8 @@ static func bake(
 	var scene_path := output_directory.path_join(stem + ".tscn")
 
 	var library := AnimationLibrary.new()
-	if library.add_animation(ANIMATION_NAME, target_animation) != OK:
+	var saved_animation := source_animation.duplicate(true) as Animation
+	if library.add_animation(ANIMATION_NAME, saved_animation) != OK:
 		push_error("Cannot add retargeted motion to its AnimationLibrary")
 		return {}
 	if ResourceSaver.save(library, library_path) != OK:
@@ -52,7 +91,7 @@ static func bake(
 
 	var output_root := Node3D.new()
 	output_root.name = "HumanoidMotion"
-	var output_skeleton := _copy_skeleton(target_template)
+	var output_skeleton := _copy_skeleton(source_skeleton)
 	output_root.add_child(output_skeleton)
 	output_skeleton.owner = output_root
 	var saved_library := ResourceLoader.load(
@@ -88,6 +127,20 @@ static func bake(
 		"animation_name": ANIMATION_NAME,
 		"mapped_bone_count": MAP.REQUIRED_TARGETS.size(),
 	}
+
+
+static func _create_output_root(target_template: Skeleton3D, animation: Animation) -> Node3D:
+	var output_root := Node3D.new()
+	output_root.name = "HumanoidMotion"
+	var output_skeleton := _copy_skeleton(target_template)
+	output_root.add_child(output_skeleton)
+	var library := AnimationLibrary.new()
+	library.add_animation(ANIMATION_NAME, animation)
+	var player := AnimationPlayer.new()
+	player.name = PLAYER_NODE_NAME
+	player.add_animation_library("", library)
+	output_root.add_child(player)
+	return output_root
 
 
 static func _retarget_animation(

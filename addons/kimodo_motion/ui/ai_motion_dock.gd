@@ -9,6 +9,12 @@ const Preview := preload("res://addons/kimodo_motion/ui/soma77_preview.gd")
 const NativeAnimationBaker := preload(
 	"res://addons/kimodo_motion/animation/native_animation_baker.gd"
 )
+const HumanoidRetargetBaker := preload(
+	"res://addons/kimodo_motion/retargeting/humanoid_retarget_baker.gd"
+)
+const HumanoidFixture := preload(
+	"res://addons/kimodo_motion/retargeting/humanoid_fixture.gd"
+)
 
 var _client: Node
 var _generation_client: Node
@@ -33,20 +39,35 @@ var _generation_status: Label
 var _generation_details_button: Button
 var _generation_details_text: RichTextLabel
 var _preview: Control
+var _humanoid_preview: Control
+var _preview_selection: OptionButton
 var _play_button: Button
 var _loop_toggle: CheckButton
+var _scrub_slider: HSlider
+var _scrub_dragging := false
+var _retarget_button: Button
+var _retarget_status: Label
+var _humanoid_directory_edit: LineEdit
+var _humanoid_name_edit: LineEdit
+var _humanoid_save_button: Button
+var _humanoid_save_status: Label
 var _save_directory_edit: LineEdit
 var _save_name_edit: LineEdit
 var _save_button: Button
 var _save_status: Label
+var _humanoid_fixture: PackedScene
 
 
 func configure(
-	client: Node, generation_client: Node = null, editor_plugin: EditorPlugin = null
+	client: Node,
+	generation_client: Node = null,
+	editor_plugin: EditorPlugin = null,
+	humanoid_fixture: PackedScene = null,
 ) -> void:
 	_client = client
 	_generation_client = generation_client
 	_editor_plugin = editor_plugin
+	_humanoid_fixture = humanoid_fixture
 	if is_node_ready():
 		_bind_client()
 		_bind_generation_client()
@@ -58,6 +79,7 @@ func _ready() -> void:
 	_build_ui()
 	_bind_client()
 	_bind_generation_client()
+	set_process(true)
 
 
 func _build_ui() -> void:
@@ -217,8 +239,21 @@ func _build_ui() -> void:
 	_content.add_child(_generation_details_text)
 
 	_preview = Preview.new()
+	_preview.configure("MotionPreview", Color(0.1, 0.85, 1.0))
 	_preview.visible = false
 	_content.add_child(_preview)
+	_humanoid_preview = Preview.new()
+	_humanoid_preview.configure("HumanoidPreview", Color(1.0, 0.25, 0.72))
+	_humanoid_preview.visible = false
+	_content.add_child(_humanoid_preview)
+	_preview_selection = OptionButton.new()
+	_preview_selection.name = "PreviewSelection"
+	_preview_selection.add_item("SOMA-77 source")
+	_preview_selection.add_item("Godot humanoid")
+	_preview_selection.disabled = true
+	_preview_selection.visible = false
+	_preview_selection.item_selected.connect(_on_preview_selected)
+	_content.add_child(_preview_selection)
 	var playback_row := HBoxContainer.new()
 	playback_row.name = "PlaybackControls"
 	playback_row.visible = false
@@ -234,10 +269,69 @@ func _build_ui() -> void:
 	_loop_toggle.button_pressed = true
 	_loop_toggle.toggled.connect(_on_loop_toggled)
 	playback_row.add_child(_loop_toggle)
+	_scrub_slider = HSlider.new()
+	_scrub_slider.name = "TimelineScrub"
+	_scrub_slider.min_value = 0.0
+	_scrub_slider.max_value = 1.0
+	_scrub_slider.step = 0.001
+	_scrub_slider.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_scrub_slider.drag_started.connect(_on_scrub_drag_started)
+	_scrub_slider.drag_ended.connect(_on_scrub_drag_ended)
+	_scrub_slider.value_changed.connect(_on_scrub_value_changed)
+	playback_row.add_child(_scrub_slider)
+
+	_content.add_child(HSeparator.new())
+	var retarget_title := Label.new()
+	retarget_title.text = "Godot humanoid"
+	retarget_title.add_theme_font_size_override("font_size", 15)
+	_content.add_child(retarget_title)
+	_retarget_button = Button.new()
+	_retarget_button.name = "RetargetHumanoid"
+	_retarget_button.text = "Retarget to Humanoid"
+	_retarget_button.disabled = true
+	_retarget_button.pressed.connect(_on_retarget_humanoid_pressed)
+	_content.add_child(_retarget_button)
+	_retarget_status = Label.new()
+	_retarget_status.name = "HumanoidRetargetStatus"
+	_retarget_status.text = "Generate a validated motion before retargeting."
+	_retarget_status.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_content.add_child(_retarget_status)
+	var humanoid_save_grid := GridContainer.new()
+	humanoid_save_grid.columns = 2
+	humanoid_save_grid.add_theme_constant_override("h_separation", 12)
+	humanoid_save_grid.add_theme_constant_override("v_separation", 5)
+	_content.add_child(humanoid_save_grid)
+	var humanoid_directory_label := Label.new()
+	humanoid_directory_label.text = "Directory"
+	humanoid_save_grid.add_child(humanoid_directory_label)
+	_humanoid_directory_edit = LineEdit.new()
+	_humanoid_directory_edit.name = "HumanoidTakeDirectory"
+	_humanoid_directory_edit.text = "res://animations/kimodo"
+	_humanoid_directory_edit.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	humanoid_save_grid.add_child(_humanoid_directory_edit)
+	var humanoid_name_label := Label.new()
+	humanoid_name_label.text = "Name"
+	humanoid_save_grid.add_child(humanoid_name_label)
+	_humanoid_name_edit = LineEdit.new()
+	_humanoid_name_edit.name = "HumanoidTakeName"
+	_humanoid_name_edit.text = "kimodo_humanoid_motion"
+	_humanoid_name_edit.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	humanoid_save_grid.add_child(_humanoid_name_edit)
+	_humanoid_save_button = Button.new()
+	_humanoid_save_button.name = "SaveHumanoidTake"
+	_humanoid_save_button.text = "Save Humanoid Take"
+	_humanoid_save_button.disabled = true
+	_humanoid_save_button.pressed.connect(_on_save_humanoid_take_pressed)
+	_content.add_child(_humanoid_save_button)
+	_humanoid_save_status = Label.new()
+	_humanoid_save_status.name = "HumanoidTakeStatus"
+	_humanoid_save_status.text = "Retarget the current motion before saving."
+	_humanoid_save_status.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_content.add_child(_humanoid_save_status)
 
 	_content.add_child(HSeparator.new())
 	var save_title := Label.new()
-	save_title.text = "Save native take"
+	save_title.text = "Save SOMA-77 native take"
 	save_title.add_theme_font_size_override("font_size", 15)
 	_content.add_child(save_title)
 	var save_grid := GridContainer.new()
@@ -265,7 +359,7 @@ func _build_ui() -> void:
 	save_grid.add_child(_save_name_edit)
 	_save_button = Button.new()
 	_save_button.name = "SaveNativeTake"
-	_save_button.text = "Save Native Take"
+	_save_button.text = "Save SOMA-77 Native Take"
 	_save_button.disabled = true
 	_save_button.pressed.connect(_on_save_native_take_pressed)
 	_content.add_child(_save_button)
@@ -440,28 +534,175 @@ func _update_generation_availability() -> void:
 	_diffusion_steps_edit.editable = not generating
 	_action_button.disabled = generating
 	_update_save_availability()
+	_update_retarget_availability()
 
 
 func _on_motion_ready() -> void:
 	var motion: RefCounted = _generation_client.take_latest_motion()
+	_accept_source_motion(motion)
+
+
+func _accept_source_motion(motion: RefCounted) -> bool:
+	_clear_humanoid_preview()
 	if not _preview.set_motion(motion):
-		return
+		_update_retarget_availability()
+		_update_save_availability()
+		return false
 	_preview.visible = true
 	var controls := _play_button.get_parent() as Control
 	controls.visible = true
 	_play_button.text = "Pause"
+	_scrub_slider.max_value = maxf(_preview.animation_length(), 0.001)
+	_scrub_slider.value = 0.0
 	_update_generation_availability()
 	_update_save_availability()
+	_update_retarget_availability()
+	return true
 
 
 func _on_play_pause_pressed() -> void:
 	var next_playing: bool = not _preview.is_playing()
 	_preview.set_playing(next_playing)
+	_humanoid_preview.set_playing(next_playing)
 	_play_button.text = "Pause" if next_playing else "Play"
 
 
 func _on_loop_toggled(enabled: bool) -> void:
 	_preview.set_looping(enabled)
+	_humanoid_preview.set_looping(enabled)
+
+
+func _process(_delta: float) -> void:
+	if _scrub_slider == null or _scrub_dragging or not _preview.has_motion():
+		return
+	_scrub_slider.set_value_no_signal(_preview.current_position())
+
+
+func _on_scrub_drag_started() -> void:
+	_scrub_dragging = true
+
+
+func _on_scrub_drag_ended(_value_changed: bool) -> void:
+	_scrub_dragging = false
+	_seek_previews(_scrub_slider.value)
+
+
+func _on_scrub_value_changed(value: float) -> void:
+	if _scrub_dragging:
+		_seek_previews(value)
+
+
+func _seek_previews(time: float) -> void:
+	_preview.seek(time)
+	_humanoid_preview.seek(time)
+
+
+func _on_preview_selected(index: int) -> void:
+	_preview.visible = index == 0 and _preview.has_motion()
+	_humanoid_preview.visible = index == 1 and _humanoid_preview.has_motion()
+
+
+func _on_retarget_humanoid_pressed() -> void:
+	if _preview == null or not _preview.has_motion():
+		_set_retarget_error("There is no validated generated motion to retarget.")
+		return
+	var template_root: Node = (
+		_humanoid_fixture.instantiate()
+		if _humanoid_fixture != null
+		else HumanoidFixture.create_scene()
+	)
+	if template_root == null:
+		_set_retarget_error("The humanoid target fixture could not be created.")
+		return
+	if _find_first_node(template_root, "Skeleton3D") == null:
+		template_root.free()
+		_set_retarget_error("The humanoid target fixture does not contain a Skeleton3D.")
+		return
+	var motion: RefCounted = HumanoidRetargetBaker.create_motion(
+		_preview.motion_scene(), template_root
+	)
+	template_root.free()
+	if motion == null or not _humanoid_preview.set_motion(motion):
+		_set_retarget_error("The current motion could not be retargeted to the humanoid fixture.")
+		return
+	_humanoid_preview.set_looping(_loop_toggle.button_pressed)
+	_humanoid_preview.seek(_preview.current_position())
+	_humanoid_preview.set_playing(_preview.is_playing())
+	_preview_selection.visible = true
+	_preview_selection.disabled = false
+	_preview_selection.select(1)
+	_on_preview_selected(1)
+	_retarget_status.modulate = Color(0.25, 0.85, 0.45)
+	_retarget_status.text = "Humanoid preview ready (56-bone Godot profile, 24 tracks)."
+	_humanoid_save_status.modulate = Color(0.7, 0.72, 0.76)
+	_humanoid_save_status.text = "Humanoid preview is ready to save."
+	_update_retarget_availability()
+
+
+func _set_retarget_error(message: String) -> void:
+	_retarget_status.modulate = Color(1.0, 0.35, 0.3)
+	_retarget_status.text = message
+
+
+func _clear_humanoid_preview() -> void:
+	if _humanoid_preview != null:
+		_humanoid_preview.clear_motion()
+		_humanoid_preview.visible = false
+	if _preview_selection != null:
+		_preview_selection.select(0)
+		_preview_selection.visible = false
+		_preview_selection.disabled = true
+	if _preview != null:
+		_preview.visible = _preview.has_motion()
+	if _humanoid_save_status != null:
+		_humanoid_save_status.modulate = Color(0.7, 0.72, 0.76)
+		_humanoid_save_status.text = "Retarget the current motion before saving."
+	_update_retarget_availability()
+
+
+func _update_retarget_availability() -> void:
+	if _retarget_button == null:
+		return
+	var generating: bool = (
+		_generation_client != null
+		and _generation_client.state == GenerationClient.GenerationState.GENERATING
+	)
+	_retarget_button.disabled = generating or _preview == null or not _preview.has_motion()
+	_humanoid_save_button.disabled = (
+		generating or _humanoid_preview == null or not _humanoid_preview.has_motion()
+	)
+
+
+func _on_save_humanoid_take_pressed() -> void:
+	var directory := _humanoid_directory_edit.text.strip_edges()
+	var take_name := _humanoid_name_edit.text.strip_edges()
+	if not directory.begins_with("res://"):
+		_set_humanoid_save_error("Directory must be project-relative and begin with res://.")
+		return
+	if take_name.is_empty():
+		_set_humanoid_save_error("Take name cannot be empty.")
+		return
+	if _humanoid_preview == null or not _humanoid_preview.has_motion():
+		_set_humanoid_save_error("There is no retargeted humanoid motion to save.")
+		return
+	var result := HumanoidRetargetBaker.save_motion(
+		_humanoid_preview.motion_scene(), directory, take_name
+	)
+	if result.is_empty():
+		_set_humanoid_save_error(
+			"Godot could not save the humanoid take. See the Output panel for details."
+		)
+		return
+	_humanoid_save_status.modulate = Color(0.25, 0.85, 0.45)
+	_humanoid_save_status.text = "Saved %s and %s" % [
+		result["scene_path"], result["library_path"]
+	]
+	_refresh_saved_resource(result["scene_path"])
+
+
+func _set_humanoid_save_error(message: String) -> void:
+	_humanoid_save_status.modulate = Color(1.0, 0.35, 0.3)
+	_humanoid_save_status.text = message
 
 
 func _on_save_native_take_pressed() -> void:
@@ -511,3 +752,13 @@ func _toggle_generation_details() -> void:
 		if _generation_details_text.visible
 		else "Show generation details"
 	)
+
+
+func _find_first_node(node: Node, type_name: StringName) -> Node:
+	if node.is_class(type_name):
+		return node
+	for child in node.get_children():
+		var found := _find_first_node(child, type_name)
+		if found != null:
+			return found
+	return null
