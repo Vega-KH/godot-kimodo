@@ -54,6 +54,7 @@ func _run() -> void:
 		_check(action.text == "Connect", "cycle %d offers Connect" % cycle)
 		_check(generate_action.disabled, "generation is disabled while disconnected")
 		_check(diffusion_steps.value == 100, "denoising control starts at the quality default")
+		_check(diffusion_steps.max_value == 200, "denoising control permits up to 200 steps")
 		_check(save_action.disabled, "native save is disabled without a validated preview")
 		_check(retarget_action.disabled, "retarget is disabled without a validated preview")
 		_check(humanoid_save_action.disabled, "humanoid save is disabled without a retarget")

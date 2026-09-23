@@ -16,6 +16,7 @@ func _run() -> void:
 	var native_name := "goal8_live"
 	var humanoid_directory := ""
 	var humanoid_name := "goal10_live_humanoid"
+	var diffusion_step_count := 100
 	var arguments := OS.get_cmdline_user_args()
 	for index in arguments.size():
 		if arguments[index] == "--url" and index + 1 < arguments.size():
@@ -30,6 +31,8 @@ func _run() -> void:
 			humanoid_directory = arguments[index + 1]
 		elif arguments[index] == "--humanoid-name" and index + 1 < arguments.size():
 			humanoid_name = arguments[index + 1]
+		elif arguments[index] == "--steps" and index + 1 < arguments.size():
+			diffusion_step_count = int(arguments[index + 1])
 
 	var capabilities := CapabilitiesClient.new()
 	root.add_child(capabilities)
@@ -57,7 +60,7 @@ func _run() -> void:
 	var seed: SpinBox = dock.find_child("GenerationSeed", true, false)
 	seed.value = 1234
 	var steps: SpinBox = dock.find_child("DiffusionSteps", true, false)
-	steps.value = 100
+	steps.value = diffusion_step_count
 	var generate_button: Button = dock.find_child("GenerateAction", true, false)
 	generate_button.emit_signal("pressed")
 	await _wait_until_not(generation, GenerationClient.GenerationState.GENERATING, 190.0)

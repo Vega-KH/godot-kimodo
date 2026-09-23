@@ -51,8 +51,15 @@ contract details are expandable without blocking the editor.
 Once connected, enter a prompt and choose a frame count, denoising-step count,
 and seed, then press **Generate**. The request runs asynchronously and can be
 canceled. The default 100 denoising steps favors normal-quality previews; lower
-values trade quality for speed. A valid response starts playing in the embedded
-SOMA-77 preview with shared Pause/Play, Loop, and timeline-scrub controls.
+values trade quality for speed, while values up to 200 allow a slower
+higher-quality pass. A valid response starts playing in the embedded SOMA-77
+preview with shared Pause/Play, Loop, and timeline-scrub controls.
+
+The preview follows planar root motion by default so locomotion remains in
+frame. Left-drag directly on the preview to orbit, use the mouse wheel to zoom,
+toggle **Follow Root** to keep a fixed world view, and press **Reset View** to
+restore the default angle and distance. Camera angle and zoom stay synchronized
+when switching between the SOMA-77 and humanoid previews.
 
 Press **Retarget to Humanoid** to build a non-destructive in-memory copy on
 the repository's 56-bone Godot humanoid A-pose. The preview selector switches
@@ -104,6 +111,7 @@ The corresponding end-to-end dock-generation check is:
 & 'C:\Godot-472\Godot_v4.7.2-stable_win64_console.exe' `
   --headless --path . --script res://tests/test_live_generation.gd -- `
   --url http://127.0.0.1:8000 `
+  --steps 200 `
   --native-dir res://tests/.live `
   --humanoid-dir res://tests/.live
 ```

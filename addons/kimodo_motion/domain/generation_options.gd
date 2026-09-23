@@ -15,8 +15,8 @@ func validate(fps: float) -> Dictionary:
 		return _error("Prompt must be 1,000 characters or fewer.")
 	if duration_frames < 1 or duration_frames > int(fps * 30.0):
 		return _error("Duration must be between 1 frame and 30 seconds.")
-	if diffusion_steps < 1 or diffusion_steps > 100:
-		return _error("Diffusion steps must be between 1 and 100.")
+	if diffusion_steps < 1 or diffusion_steps > 200:
+		return _error("Diffusion steps must be between 1 and 200.")
 	return {"ok": true}
 
 

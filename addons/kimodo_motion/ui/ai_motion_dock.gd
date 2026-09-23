@@ -45,6 +45,8 @@ var _play_button: Button
 var _loop_toggle: CheckButton
 var _scrub_slider: HSlider
 var _scrub_dragging := false
+var _follow_root_toggle: CheckButton
+var _reset_camera_button: Button
 var _retarget_button: Button
 var _retarget_status: Label
 var _humanoid_directory_edit: LineEdit
@@ -197,7 +199,7 @@ func _build_ui() -> void:
 	_diffusion_steps_edit = SpinBox.new()
 	_diffusion_steps_edit.name = "DiffusionSteps"
 	_diffusion_steps_edit.min_value = 1
-	_diffusion_steps_edit.max_value = 100
+	_diffusion_steps_edit.max_value = 200
 	_diffusion_steps_edit.value = 100
 	_diffusion_steps_edit.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	options_grid.add_child(_diffusion_steps_edit)
@@ -240,10 +242,12 @@ func _build_ui() -> void:
 
 	_preview = Preview.new()
 	_preview.configure("MotionPreview", Color(0.1, 0.85, 1.0))
+	_preview.camera_view_changed.connect(_on_camera_view_changed)
 	_preview.visible = false
 	_content.add_child(_preview)
 	_humanoid_preview = Preview.new()
 	_humanoid_preview.configure("HumanoidPreview", Color(1.0, 0.25, 0.72))
+	_humanoid_preview.camera_view_changed.connect(_on_camera_view_changed)
 	_humanoid_preview.visible = false
 	_content.add_child(_humanoid_preview)
 	_preview_selection = OptionButton.new()
@@ -279,6 +283,26 @@ func _build_ui() -> void:
 	_scrub_slider.drag_ended.connect(_on_scrub_drag_ended)
 	_scrub_slider.value_changed.connect(_on_scrub_value_changed)
 	playback_row.add_child(_scrub_slider)
+	var camera_row := HBoxContainer.new()
+	camera_row.name = "CameraControls"
+	camera_row.visible = false
+	_content.add_child(camera_row)
+	_follow_root_toggle = CheckButton.new()
+	_follow_root_toggle.name = "FollowRoot"
+	_follow_root_toggle.text = "Follow Root"
+	_follow_root_toggle.button_pressed = true
+	_follow_root_toggle.toggled.connect(_on_follow_root_toggled)
+	camera_row.add_child(_follow_root_toggle)
+	_reset_camera_button = Button.new()
+	_reset_camera_button.name = "ResetCamera"
+	_reset_camera_button.text = "Reset View"
+	_reset_camera_button.pressed.connect(_on_reset_camera_pressed)
+	camera_row.add_child(_reset_camera_button)
+	var camera_hint := Label.new()
+	camera_hint.text = "Drag to orbit · Wheel to zoom"
+	camera_hint.modulate = Color(0.7, 0.72, 0.76)
+	camera_hint.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	camera_row.add_child(camera_hint)
 
 	_content.add_child(HSeparator.new())
 	var retarget_title := Label.new()
@@ -551,6 +575,8 @@ func _accept_source_motion(motion: RefCounted) -> bool:
 	_preview.visible = true
 	var controls := _play_button.get_parent() as Control
 	controls.visible = true
+	var camera_controls := _follow_root_toggle.get_parent() as Control
+	camera_controls.visible = true
 	_play_button.text = "Pause"
 	_scrub_slider.max_value = maxf(_preview.animation_length(), 0.001)
 	_scrub_slider.value = 0.0
@@ -570,6 +596,22 @@ func _on_play_pause_pressed() -> void:
 func _on_loop_toggled(enabled: bool) -> void:
 	_preview.set_looping(enabled)
 	_humanoid_preview.set_looping(enabled)
+
+
+func _on_camera_view_changed(yaw: float, pitch: float, distance: float) -> void:
+	_preview.set_camera_view(yaw, pitch, distance)
+	_humanoid_preview.set_camera_view(yaw, pitch, distance)
+
+
+func _on_follow_root_toggled(enabled: bool) -> void:
+	_preview.set_camera_follow_root(enabled)
+	_humanoid_preview.set_camera_follow_root(enabled)
+
+
+func _on_reset_camera_pressed() -> void:
+	_preview.reset_camera_view()
+	var view: Dictionary = _preview.camera_view()
+	_humanoid_preview.set_camera_view(view["yaw"], view["pitch"], view["distance"])
 
 
 func _process(_delta: float) -> void:

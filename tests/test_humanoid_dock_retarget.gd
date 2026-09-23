@@ -40,6 +40,65 @@ func _run() -> void:
 	_check(selector.visible and not selector.disabled, "preview selector becomes available")
 	_check(not save.disabled, "humanoid save enables after retargeting")
 	_check(humanoid.visible and not source.visible, "retarget result is selected")
+	var follow_root := dock.find_child("FollowRoot", true, false) as CheckButton
+	var reset_camera := dock.find_child("ResetCamera", true, false) as Button
+	var camera_controls := dock.find_child("CameraControls", true, false) as Control
+	_check(camera_controls.visible, "camera controls appear with the preview")
+	_check(follow_root.button_pressed, "root following begins enabled")
+	source.seek(0.0)
+	source._process(0.0)
+	var start_target: Vector3 = source.camera_target()
+	source.set_playing(false)
+	var source_hips: int = source.skeleton().find_bone("Hips")
+	var moved_hips: Vector3 = (
+		source.skeleton().get_bone_pose_position(source_hips) + Vector3(2.0, 0.0, 3.0)
+	)
+	source.skeleton().set_bone_pose_position(source_hips, moved_hips)
+	source._process(0.0)
+	var end_target: Vector3 = source.camera_target()
+	_check(
+		Vector2(start_target.x, start_target.z).distance_to(Vector2(end_target.x, end_target.z)) > 3.0,
+		"camera target follows planar root travel",
+	)
+	source.seek(0.0)
+	source.set_playing(true)
+	var start_view: Dictionary = source.camera_view()
+	var wheel := InputEventMouseButton.new()
+	wheel.button_index = MOUSE_BUTTON_WHEEL_UP
+	wheel.pressed = true
+	source._gui_input(wheel)
+	var zoomed_view: Dictionary = source.camera_view()
+	_check(zoomed_view["distance"] < start_view["distance"], "mouse wheel zooms the preview")
+	_check(
+		is_equal_approx(zoomed_view["distance"], humanoid.camera_view()["distance"]),
+		"zoom is synchronized between previews",
+	)
+	var orbit_start := InputEventMouseButton.new()
+	orbit_start.button_index = MOUSE_BUTTON_LEFT
+	orbit_start.pressed = true
+	source._gui_input(orbit_start)
+	var orbit_motion := InputEventMouseMotion.new()
+	orbit_motion.relative = Vector2(20.0, -10.0)
+	source._gui_input(orbit_motion)
+	var orbit_end := InputEventMouseButton.new()
+	orbit_end.button_index = MOUSE_BUTTON_LEFT
+	orbit_end.pressed = false
+	source._gui_input(orbit_end)
+	var orbited_view: Dictionary = source.camera_view()
+	_check(not is_equal_approx(orbited_view["yaw"], start_view["yaw"]), "drag orbits camera")
+	_check(
+		is_equal_approx(orbited_view["yaw"], humanoid.camera_view()["yaw"]),
+		"orbit is synchronized between previews",
+	)
+	reset_camera.emit_signal("pressed")
+	_check(
+		is_equal_approx(source.camera_view()["distance"], source.DEFAULT_CAMERA_DISTANCE),
+		"reset restores the default camera distance",
+	)
+	follow_root.button_pressed = false
+	follow_root.emit_signal("toggled", false)
+	_check(not source.camera_follows_root(), "source root following can be disabled")
+	_check(not humanoid.camera_follows_root(), "humanoid root following stays synchronized")
 
 	selector.select(0)
 	selector.emit_signal("item_selected", 0)

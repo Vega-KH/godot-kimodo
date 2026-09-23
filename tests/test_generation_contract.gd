@@ -36,7 +36,9 @@ func _init() -> void:
 	options.duration_frames = 901
 	_check(not options.validate(capabilities.fps)["ok"], "overlong duration is rejected")
 	options.duration_frames = 30
-	options.diffusion_steps = 101
+	options.diffusion_steps = 200
+	_check(options.validate(capabilities.fps)["ok"], "200 denoising steps are accepted")
+	options.diffusion_steps = 201
 	_check(not options.validate(capabilities.fps)["ok"], "unsupported denoising steps are rejected")
 
 	var motion_result := MotionResponse.parse(

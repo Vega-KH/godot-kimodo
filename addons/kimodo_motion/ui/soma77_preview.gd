@@ -2,16 +2,35 @@
 class_name Soma77Preview
 extends SubViewportContainer
 
+signal camera_view_changed(yaw: float, pitch: float, distance: float)
+
+const DEFAULT_CAMERA_YAW := 0.588003
+const DEFAULT_CAMERA_PITCH := 0.107385
+const DEFAULT_CAMERA_DISTANCE := 3.263817
+const CAMERA_TARGET_HEIGHT := 1.0
+const MIN_CAMERA_DISTANCE := 1.25
+const MAX_CAMERA_DISTANCE := 12.0
+const MIN_CAMERA_PITCH := -1.2
+const MAX_CAMERA_PITCH := 1.2
+
 var _viewport: SubViewport
 var _world_root: Node3D
+var _camera: Camera3D
 var _motion_scene: Node
 var _skeleton: Skeleton3D
 var _player: AnimationPlayer
 var _lines: MeshInstance3D
 var _animation_name: StringName
+var _follow_bone_index := -1
 var _looping := true
 var _preview_name := "MotionPreview"
 var _line_color := Color(0.25, 0.95, 0.65)
+var _camera_yaw := DEFAULT_CAMERA_YAW
+var _camera_pitch := DEFAULT_CAMERA_PITCH
+var _camera_distance := DEFAULT_CAMERA_DISTANCE
+var _camera_target := Vector3(0.0, CAMERA_TARGET_HEIGHT, 0.0)
+var _follow_root := true
+var _orbiting := false
 
 
 func configure(preview_name: String, line_color: Color) -> void:
@@ -27,6 +46,8 @@ func _ready() -> void:
 	custom_minimum_size = Vector2(320.0, 250.0)
 	size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	stretch = true
+	mouse_filter = Control.MOUSE_FILTER_STOP
+	tooltip_text = "Left-drag to orbit. Use the mouse wheel to zoom."
 	_build_viewport()
 	set_process(true)
 
@@ -44,6 +65,9 @@ func set_motion(motion: RefCounted) -> bool:
 	if _skeleton == null or _player == null or not _player.has_animation(_animation_name):
 		clear_motion()
 		return false
+	_follow_bone_index = _skeleton.find_bone("Root")
+	if _follow_bone_index < 0:
+		_follow_bone_index = _skeleton.find_bone("Hips")
 	_apply_looping()
 	_player.play(_animation_name)
 	return true
@@ -53,6 +77,7 @@ func clear_motion() -> void:
 	_skeleton = null
 	_player = null
 	_animation_name = &""
+	_follow_bone_index = -1
 	if _motion_scene != null and is_instance_valid(_motion_scene):
 		_motion_scene.free()
 	_motion_scene = null
@@ -110,6 +135,44 @@ func animation_length() -> float:
 	return _player.get_animation(_animation_name).length
 
 
+func set_camera_follow_root(enabled: bool) -> void:
+	_follow_root = enabled
+	if not enabled:
+		_camera_target = Vector3(0.0, CAMERA_TARGET_HEIGHT, 0.0)
+	_update_camera()
+
+
+func camera_follows_root() -> bool:
+	return _follow_root
+
+
+func set_camera_view(yaw: float, pitch: float, distance: float) -> void:
+	_camera_yaw = yaw
+	_camera_pitch = clampf(pitch, MIN_CAMERA_PITCH, MAX_CAMERA_PITCH)
+	_camera_distance = clampf(distance, MIN_CAMERA_DISTANCE, MAX_CAMERA_DISTANCE)
+	_update_camera()
+
+
+func reset_camera_view() -> void:
+	set_camera_view(DEFAULT_CAMERA_YAW, DEFAULT_CAMERA_PITCH, DEFAULT_CAMERA_DISTANCE)
+
+
+func camera_view() -> Dictionary:
+	return {
+		"yaw": _camera_yaw,
+		"pitch": _camera_pitch,
+		"distance": _camera_distance,
+	}
+
+
+func camera_target() -> Vector3:
+	return _camera_target
+
+
+func camera_position() -> Vector3:
+	return _camera.position if _camera != null else Vector3.ZERO
+
+
 func _exit_tree() -> void:
 	clear_motion()
 
@@ -136,12 +199,11 @@ func _build_viewport() -> void:
 	environment.environment = settings
 	_world_root.add_child(environment)
 
-	var camera := Camera3D.new()
-	camera.name = "PreviewCamera"
-	camera.position = Vector3(1.8, 1.35, 2.7)
-	camera.fov = 60.0
-	camera.look_at_from_position(camera.position, Vector3(0.0, 1.0, 0.0))
-	_world_root.add_child(camera)
+	_camera = Camera3D.new()
+	_camera.name = "PreviewCamera"
+	_camera.fov = 60.0
+	_world_root.add_child(_camera)
+	_update_camera()
 
 	_lines = MeshInstance3D.new()
 	_lines.name = "AnimatedSkeletonLines"
@@ -154,6 +216,8 @@ func _build_viewport() -> void:
 
 
 func _process(_delta: float) -> void:
+	_update_follow_target()
+	_update_camera()
 	if _skeleton == null or _lines == null:
 		return
 	var mesh := ImmediateMesh.new()
@@ -173,6 +237,56 @@ func _process(_delta: float) -> void:
 		mesh.surface_add_vertex(child_position)
 	mesh.surface_end()
 	_lines.mesh = mesh
+
+
+func _gui_input(event: InputEvent) -> void:
+	if event is InputEventMouseButton:
+		var button := event as InputEventMouseButton
+		if button.button_index == MOUSE_BUTTON_LEFT:
+			_orbiting = button.pressed
+			accept_event()
+		elif button.pressed and button.button_index in [
+			MOUSE_BUTTON_WHEEL_UP, MOUSE_BUTTON_WHEEL_DOWN
+		]:
+			var factor := 0.9 if button.button_index == MOUSE_BUTTON_WHEEL_UP else 1.1
+			_camera_distance = clampf(
+				_camera_distance * factor, MIN_CAMERA_DISTANCE, MAX_CAMERA_DISTANCE
+			)
+			_update_camera()
+			camera_view_changed.emit(_camera_yaw, _camera_pitch, _camera_distance)
+			accept_event()
+	elif event is InputEventMouseMotion and _orbiting:
+		var motion := event as InputEventMouseMotion
+		_camera_yaw -= motion.relative.x * 0.01
+		_camera_pitch = clampf(
+			_camera_pitch - motion.relative.y * 0.01,
+			MIN_CAMERA_PITCH,
+			MAX_CAMERA_PITCH,
+		)
+		_update_camera()
+		camera_view_changed.emit(_camera_yaw, _camera_pitch, _camera_distance)
+		accept_event()
+
+
+func _update_follow_target() -> void:
+	if not _follow_root or _skeleton == null or _follow_bone_index < 0:
+		return
+	var root_world := _world_root.to_local(
+		_skeleton.to_global(_skeleton.get_bone_global_pose(_follow_bone_index).origin)
+	)
+	_camera_target = Vector3(root_world.x, CAMERA_TARGET_HEIGHT, root_world.z)
+
+
+func _update_camera() -> void:
+	if _camera == null:
+		return
+	var horizontal := cos(_camera_pitch)
+	var offset := Vector3(
+		sin(_camera_yaw) * horizontal,
+		sin(_camera_pitch),
+		cos(_camera_yaw) * horizontal,
+	) * _camera_distance
+	_camera.look_at_from_position(_camera_target + offset, _camera_target)
 
 
 func _apply_looping() -> void:
