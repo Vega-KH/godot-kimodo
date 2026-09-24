@@ -66,6 +66,9 @@ Invoke-GodotCheck -Name 'Humanoid retarget and native reload' -GodotArguments @(
 Invoke-GodotCheck -Name 'Humanoid dock preview and save lifecycle' -GodotArguments @(
     '--headless', '--path', '.', '--script', 'res://tests/test_humanoid_dock_retarget.gd'
 )
+Invoke-GodotCheck -Name 'Jenny skinned-character retarget and reload' -GodotArguments @(
+    '--headless', '--path', '.', '--script', 'res://tests/test_jenny_character_retarget.gd'
+)
 Invoke-GodotCheck -Name 'Playback scene smoke test' -GodotArguments @(
     '--headless', '--path', '.', '--scene',
     'res://tests/fixtures/soma77_playback.tscn', '--quit-after', '5'
@@ -77,6 +80,10 @@ Invoke-GodotCheck -Name 'Native playback scene smoke test' -GodotArguments @(
 Invoke-GodotCheck -Name 'Humanoid retarget playback smoke test' -GodotArguments @(
     '--headless', '--path', '.', '--scene',
     'res://tests/retargeting/humanoid_retarget_playback.tscn', '--quit-after', '5'
+)
+Invoke-GodotCheck -Name 'Jenny skinned-character playback smoke test' -GodotArguments @(
+    '--headless', '--path', '.', '--scene',
+    'res://tests/characters/jenny_retarget_playback.tscn', '--quit-after', '5'
 )
 
 Write-Host 'PASS: all Godot checks completed without engine or script errors.'

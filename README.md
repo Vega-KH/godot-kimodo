@@ -10,6 +10,8 @@ the result immediately in a line-skeleton preview. Recorded motion can also be
 validated and baked into a self-contained native Godot scene and
 `AnimationLibrary`. A saved SOMA-77 take can additionally be retargeted to a
 distinct Godot `SkeletonProfileHumanoid` fixture with explicit rest correction.
+The same humanoid take can be transferred onto the repository's skinned
+Auto-Rig Pro acceptance character with model-space rest-pose correction.
 
 ## Reference environment
 
@@ -29,7 +31,9 @@ See the [transport fixture guide](tests/fixtures/README.md) for provenance and
 the [native fixture guide](tests/native/README.md) for baking, dependency, and
 manual playback details. The [humanoid retarget guide](tests/retargeting/README.md)
 records the 22-bone body map, ignored joints, generated A-pose fixture, and
-side-by-side acceptance scene.
+side-by-side acceptance scene. The [skinned character guide](tests/characters/README.md)
+records the Jenny fixture provenance, root-bone decision, import measurements,
+and manual character playback controls.
 
 Run the complete offline suite, including capability transport failure cases,
 plugin restart, native baking, and short playback scene runs, with:
