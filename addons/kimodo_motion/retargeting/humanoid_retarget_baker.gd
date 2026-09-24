@@ -228,8 +228,15 @@ static func _target_local_poses(
 				source_globals[source_index].basis
 				* source_global_rests[source_index].basis.inverse()
 			)
+			var corrected_target_rest := _direction_corrected_rest_basis(
+				target_name,
+				source,
+				source_global_rests,
+				target,
+				target_global_rests,
+			)
 			var desired_global_basis := (
-				source_motion * target_global_rests[target_index].basis
+				source_motion * corrected_target_rest
 			)
 			local_pose.basis = parent_global.basis.inverse() * desired_global_basis
 			if target_name == "Hips":
@@ -242,6 +249,32 @@ static func _target_local_poses(
 		target_locals[target_index] = local_pose
 		target_globals[target_index] = parent_global * local_pose
 	return target_locals
+
+
+static func _direction_corrected_rest_basis(
+	target_name: StringName,
+	source: Skeleton3D,
+	source_global_rests: Array[Transform3D],
+	target: Skeleton3D,
+	target_global_rests: Array[Transform3D],
+) -> Basis:
+	var target_index := target.find_bone(target_name)
+	var target_basis := target_global_rests[target_index].basis
+	var child_name := MAP.direction_child_for_target(target_name)
+	if child_name.is_empty():
+		return target_basis
+	var source_index := source.find_bone(MAP.source_for_target(target_name))
+	var source_child_index := source.find_bone(
+		MAP.source_direction_child_for_target(target_name)
+	)
+	var target_child_index := target.find_bone(child_name)
+	var source_direction := source_global_rests[source_index].origin.direction_to(
+		source_global_rests[source_child_index].origin
+	)
+	var target_direction := target_global_rests[target_index].origin.direction_to(
+		target_global_rests[target_child_index].origin
+	)
+	return Basis(Quaternion(target_direction, source_direction)) * target_basis
 
 
 static func _sample_global_poses(

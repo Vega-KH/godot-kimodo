@@ -13,6 +13,7 @@ const JENNY_SCENE := preload("res://tests/characters/fixtures/Jenny03.glb")
 const JENNY_PATH := "res://tests/characters/fixtures/Jenny03.glb"
 const JENNY_SHA256 := "cea2da0dead498499b0433322d9aba04681da24e587d3e2a15004acfe2afeae9"
 const ROTATION_TOLERANCE := 0.001
+const INTERPOLATED_ROTATION_TOLERANCE := 0.006
 const POSITION_TOLERANCE := 0.000001
 const SAMPLE_TIMES := [0.0, 0.25, 0.5, 29.0 / 30.0]
 
@@ -137,6 +138,7 @@ func _validate_model_space_deltas(
 ) -> void:
 	var source_rests := _global_rests(source_skeleton)
 	var target_rests := _global_rests(target_skeleton)
+	var non_commuting_bones := 0
 	for time in SAMPLE_TIMES:
 		source_player.seek(time, true)
 		target_player.seek(time, true)
@@ -147,14 +149,34 @@ func _validate_model_space_deltas(
 				source_skeleton.get_bone_global_pose(source_index).basis
 				* source_rests[source_index].basis.inverse()
 			)
+			var corrected_rest := _direction_corrected_rest(
+				bone_name, source_skeleton, source_rests, target_skeleton, target_rests
+			)
 			var target_delta := (
 				target_skeleton.get_bone_global_pose(target_index).basis
-				* target_rests[target_index].basis.inverse()
+				* corrected_rest.inverse()
 			)
 			var angle := source_delta.get_rotation_quaternion().angle_to(
 				target_delta.get_rotation_quaternion()
 			)
-			_check(angle <= ROTATION_TOLERANCE, "%s rest delta matches" % bone_name)
+			var tolerance := (
+				ROTATION_TOLERANCE
+				if is_equal_approx(time * 30.0, roundf(time * 30.0))
+				else INTERPOLATED_ROTATION_TOLERANCE
+			)
+			_check(
+				angle <= tolerance,
+				"%s rest delta matches at %.3f (%.9f)" % [bone_name, time, angle],
+			)
+			if is_zero_approx(time):
+				var old_order := source_delta * target_rests[target_index].basis
+				var corrected_order := source_delta * corrected_rest
+				if old_order.get_rotation_quaternion().angle_to(
+					corrected_order.get_rotation_quaternion()
+				) > 0.1:
+					non_commuting_bones += 1
+	_check(non_commuting_bones >= 4, "Jenny exercises non-commuting rest rotations")
+	_validate_segment_directions(source_skeleton, source_player, target_skeleton, target_player)
 
 
 func _validate_root_motion(source_player: AnimationPlayer, target_player: AnimationPlayer) -> void:
@@ -229,6 +251,56 @@ func _global_rests(skeleton: Skeleton3D) -> Array[Transform3D]:
 		var parent := skeleton.get_bone_parent(index)
 		rests[index] = local if parent < 0 else rests[parent] * local
 	return rests
+
+
+func _direction_corrected_rest(
+	bone_name: StringName,
+	source: Skeleton3D,
+	source_rests: Array[Transform3D],
+	target: Skeleton3D,
+	target_rests: Array[Transform3D],
+) -> Basis:
+	var source_index := source.find_bone(bone_name)
+	var target_index := target.find_bone(bone_name)
+	var child_name := HumanoidMap.direction_child_for_target(bone_name)
+	if child_name.is_empty():
+		return target_rests[target_index].basis
+	var source_child := source.find_bone(child_name)
+	var target_child := target.find_bone(child_name)
+	var source_direction := source_rests[source_index].origin.direction_to(
+		source_rests[source_child].origin
+	)
+	var target_direction := target_rests[target_index].origin.direction_to(
+		target_rests[target_child].origin
+	)
+	return Basis(Quaternion(target_direction, source_direction)) * target_rests[target_index].basis
+
+
+func _validate_segment_directions(
+	source: Skeleton3D,
+	source_player: AnimationPlayer,
+	target: Skeleton3D,
+	target_player: AnimationPlayer,
+) -> void:
+	for time in SAMPLE_TIMES:
+		source_player.seek(time, true)
+		target_player.seek(time, true)
+		for bone_name in HumanoidMap.DIRECTION_CHILDREN:
+			var child_name: StringName = HumanoidMap.direction_child_for_target(bone_name)
+			var source_parent := source.find_bone(bone_name)
+			var source_child := source.find_bone(child_name)
+			var target_parent := target.find_bone(bone_name)
+			var target_child := target.find_bone(child_name)
+			var source_direction := source.get_bone_global_pose(source_parent).origin.direction_to(
+				source.get_bone_global_pose(source_child).origin
+			)
+			var target_direction := target.get_bone_global_pose(target_parent).origin.direction_to(
+				target.get_bone_global_pose(target_child).origin
+			)
+			_check(
+				source_direction.angle_to(target_direction) <= INTERPOLATED_ROTATION_TOLERANCE,
+				"%s segment direction matches at %.3f" % [bone_name, time],
+			)
 
 
 func _find_track(animation: Animation, bone_name: String, type: Animation.TrackType) -> int:

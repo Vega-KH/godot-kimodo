@@ -36,6 +36,36 @@ const REQUIRED_TARGETS := [
 	"RightUpperLeg", "RightLowerLeg", "RightFoot", "RightToes",
 ]
 
+# The primary semantic child defines the visible direction of each non-leaf
+# body segment. Retargeting aligns these rest directions before applying the
+# source motion, so A/T-pose and exporter-axis differences do not leak into the
+# animated pose.
+const DIRECTION_CHILDREN := {
+	"Hips": "Spine",
+	"Spine": "Chest",
+	"Chest": "UpperChest",
+	"UpperChest": "Neck",
+	"Neck": "Head",
+	"LeftShoulder": "LeftUpperArm",
+	"LeftUpperArm": "LeftLowerArm",
+	"LeftLowerArm": "LeftHand",
+	"RightShoulder": "RightUpperArm",
+	"RightUpperArm": "RightLowerArm",
+	"RightLowerArm": "RightHand",
+	"LeftUpperLeg": "LeftLowerLeg",
+	"LeftLowerLeg": "LeftFoot",
+	"LeftFoot": "LeftToes",
+	"RightUpperLeg": "RightLowerLeg",
+	"RightLowerLeg": "RightFoot",
+	"RightFoot": "RightToes",
+}
+
+const DIRECTION_SOURCE_CHILD_OVERRIDES := {
+	# UpperChest collapses SOMA's first neck segment. Its visible direction is
+	# therefore Chest -> Neck1, while target Neck rotation still maps Neck2.
+	"UpperChest": "Neck1",
+}
+
 const COLLAPSED_SOURCE_JOINTS := ["Neck1"]
 const IGNORED_FACE_JOINTS := ["HeadEnd", "Jaw", "LeftEye", "RightEye"]
 const IGNORED_TOE_END_JOINTS := ["LeftToeEnd", "RightToeEnd"]
@@ -51,6 +81,16 @@ static func ignored_finger_joints() -> Array[String]:
 
 static func source_for_target(target_name: StringName) -> StringName:
 	return StringName(TARGET_TO_SOURCE.get(String(target_name), ""))
+
+
+static func direction_child_for_target(target_name: StringName) -> StringName:
+	return StringName(DIRECTION_CHILDREN.get(String(target_name), ""))
+
+
+static func source_direction_child_for_target(target_name: StringName) -> StringName:
+	if DIRECTION_SOURCE_CHILD_OVERRIDES.has(String(target_name)):
+		return StringName(DIRECTION_SOURCE_CHILD_OVERRIDES[String(target_name)])
+	return source_for_target(direction_child_for_target(target_name))
 
 
 static func validate(source: Skeleton3D, target: Skeleton3D) -> String:

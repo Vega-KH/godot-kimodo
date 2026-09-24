@@ -122,5 +122,8 @@ The corresponding end-to-end dock-generation check is:
 
 ## License
 
-Original extension code is MIT licensed. Model, backend, and test-fixture
-provenance are recorded separately; no model weights are included.
+Original extension code is MIT licensed. The bundled Jenny test character is
+copyright © 2026 Kyle Howard and licensed separately under CC BY 4.0; its
+attribution notice is in `tests/characters/fixtures/LICENSE.md`. Backend and
+other test-fixture provenance are recorded separately; no model weights are
+included.

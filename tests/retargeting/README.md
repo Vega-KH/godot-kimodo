@@ -54,3 +54,10 @@ and pink humanoid target side by side. The automated test verifies profile
 structure, mapping coverage, rest-delta equivalence, root travel, finite keys,
 source immutability, unique naming, dependency closure, and save/reload
 stability.
+
+Rotation transfer first aligns each target segment's rest direction to its
+mapped source segment, while retaining the target's authored roll. In global
+notation, `source_motion = source_pose * inverse(source_rest)` and
+`target_pose = source_motion * direction_corrected_target_rest`. This prevents
+A/T-pose and exporter-axis differences from leaking into shoulders, arms,
+legs, and the neck while preserving target proportions.

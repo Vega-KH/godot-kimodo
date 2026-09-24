@@ -29,7 +29,8 @@ var _capture_frame := 0
 
 func _ready() -> void:
 	_capture_directory = _argument_value("--capture-dir")
-	var source := SOURCE_SCENE.instantiate() as Node3D
+	var source_scene := _scene_argument("--source-scene", SOURCE_SCENE)
+	var source := source_scene.instantiate() as Node3D
 	source.position.x = -0.85
 	add_child(source)
 	_source_skeleton = _find_first(source, "Skeleton3D") as Skeleton3D
@@ -42,6 +43,9 @@ func _ready() -> void:
 	var motion: RefCounted = Baker.create_motion(source, character)
 	_character_skeleton = motion.skeleton
 	_character_player = motion.player
+	if not _capture_directory.is_empty():
+		_source_player.pause()
+		_character_player.pause()
 
 	_lines = MeshInstance3D.new()
 	_lines.name = "HumanoidLines"
@@ -53,13 +57,13 @@ func _ready() -> void:
 
 	var floor_mesh := PlaneMesh.new()
 	floor_mesh.size = Vector2(12.0, 12.0)
-	var floor := MeshInstance3D.new()
-	floor.name = "Floor"
-	floor.mesh = floor_mesh
+	var floor1 := MeshInstance3D.new()
+	floor1.name = "Floor"
+	floor1.mesh = floor_mesh
 	var floor_material := StandardMaterial3D.new()
 	floor_material.albedo_color = Color(0.12, 0.13, 0.16)
-	floor.material_override = floor_material
-	add_child(floor)
+	floor1.material_override = floor_material
+	add_child(floor1)
 
 	var environment := WorldEnvironment.new()
 	var settings := Environment.new()
@@ -173,23 +177,28 @@ func _capture_frame_if_requested() -> void:
 	if _capture_directory.is_empty():
 		return
 	_capture_frame += 1
+	var animation_length := _source_player.get_animation("motion").length
 	var samples := {
 		1: [0.0, 0.0, "jenny_front_start.png"],
-		7: [0.5, 0.0, "jenny_front_mid.png"],
-		13: [29.0 / 30.0, 0.0, "jenny_front_end.png"],
-		19: [0.5, PI / 2.0, "jenny_side_mid.png"],
+		10: [animation_length * 0.5, 0.0, "jenny_front_mid.png"],
+		19: [animation_length, 0.0, "jenny_front_end.png"],
+		28: [animation_length * 0.5, PI / 2.0, "jenny_side_mid.png"],
 	}
 	if samples.has(_capture_frame):
 		var sample: Array = samples[_capture_frame]
 		_source_player.seek(sample[0], true)
 		_character_player.seek(sample[0], true)
+		_source_skeleton.force_update_all_bone_transforms()
+		_character_skeleton.force_update_all_bone_transforms()
 		_yaw = sample[1]
-	if samples.has(_capture_frame - 1):
-		var sample: Array = samples[_capture_frame - 1]
+	# Allow two rendered frames after a seek/camera change so the viewport
+	# texture and the line mesh represent the exact same paused sample.
+	if samples.has(_capture_frame - 2):
+		var sample: Array = samples[_capture_frame - 2]
 		var image := get_viewport().get_texture().get_image()
 		if image.save_png(_capture_directory.path_join(sample[2])) != OK:
 			push_error("Could not save Jenny comparison frame")
-	if _capture_frame >= 21:
+	if _capture_frame >= 31:
 		get_tree().quit()
 
 
@@ -199,6 +208,15 @@ func _argument_value(flag: String) -> String:
 		if arguments[index] == flag and index + 1 < arguments.size():
 			return arguments[index + 1]
 	return ""
+
+
+func _scene_argument(flag: String, fallback: PackedScene) -> PackedScene:
+	var path := _argument_value(flag)
+	if path.is_empty():
+		return fallback
+	return ResourceLoader.load(
+		path, "PackedScene", ResourceLoader.CACHE_MODE_IGNORE
+	) as PackedScene
 
 
 func _find_first(node: Node, type_name: StringName) -> Node:

@@ -4,6 +4,10 @@
 the project owner for plugin testing. It is the root-bearing Auto-Rig Pro
 export and remains outside the addon runtime package.
 
+The model is copyright © 2026 Kyle Howard and licensed separately under
+CC BY 4.0. See [`fixtures/LICENSE.md`](fixtures/LICENSE.md) for the required
+attribution. The repository's MIT software license does not cover this model.
+
 - SHA-256: `cea2da0dead498499b0433322d9aba04681da24e587d3e2a15004acfe2afeae9`
 - Size: 12,414,456 bytes
 - Geometry: 21,661 imported vertices and 37,270 indexed triangles
@@ -38,4 +42,5 @@ Run the automated contract with:
 
 Open `jenny_retarget_playback.tscn` for the cyan line-humanoid and skinned
 Jenny comparison. Drag to orbit, use the mouse wheel to zoom, press `F` to
-toggle root following, and press `R` to reset the view.
+toggle root following, and press `R` to reset the view. For a different saved
+humanoid take, launch the scene with `--source-scene res://path/to/take.tscn`.

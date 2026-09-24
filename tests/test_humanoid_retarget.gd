@@ -189,6 +189,7 @@ func _validate_motion(source_root: Node, target_root: Node) -> void:
 	target_skeleton.force_update_all_bone_transforms()
 	var source_rests := _global_rests(source_skeleton)
 	var target_rests := _global_rests(target_skeleton)
+	var non_commuting_bones := 0
 	for target_name in Map.REQUIRED_TARGETS:
 		var source_index := source_skeleton.find_bone(Map.source_for_target(target_name))
 		var target_index := target_skeleton.find_bone(target_name)
@@ -196,14 +197,25 @@ func _validate_motion(source_root: Node, target_root: Node) -> void:
 			source_skeleton.get_bone_global_pose(source_index).basis
 			* source_rests[source_index].basis.inverse()
 		)
+		var corrected_rest := _direction_corrected_rest(
+			target_name, source_skeleton, source_rests, target_skeleton, target_rests
+		)
 		var target_delta := (
 			target_skeleton.get_bone_global_pose(target_index).basis
-			* target_rests[target_index].basis.inverse()
+			* corrected_rest.inverse()
 		)
 		var error := source_delta.get_rotation_quaternion().angle_to(
 			target_delta.get_rotation_quaternion()
 		)
 		_check(error <= ROTATION_TOLERANCE, "%s model-space rest delta %.9f" % [target_name, error])
+		var old_order := source_delta * target_rests[target_index].basis
+		var corrected_order := source_delta * corrected_rest
+		if old_order.get_rotation_quaternion().angle_to(
+			corrected_order.get_rotation_quaternion()
+		) > 0.1:
+			non_commuting_bones += 1
+	_check(non_commuting_bones >= 4, "fixture exercises non-commuting rest rotations")
+	_validate_segment_directions(source_skeleton, target_skeleton)
 
 	var source_animation := source_player.get_animation("motion")
 	var target_animation := target_player.get_animation("motion")
@@ -290,6 +302,48 @@ func _global_rests(skeleton: Skeleton3D) -> Array[Transform3D]:
 		if parent >= 0:
 			rests[index] = rests[parent] * rests[index]
 	return rests
+
+
+func _direction_corrected_rest(
+	target_name: StringName,
+	source: Skeleton3D,
+	source_rests: Array[Transform3D],
+	target: Skeleton3D,
+	target_rests: Array[Transform3D],
+) -> Basis:
+	var target_index := target.find_bone(target_name)
+	var child_name := Map.direction_child_for_target(target_name)
+	if child_name.is_empty():
+		return target_rests[target_index].basis
+	var source_index := source.find_bone(Map.source_for_target(target_name))
+	var source_child := source.find_bone(Map.source_direction_child_for_target(target_name))
+	var target_child := target.find_bone(child_name)
+	var source_direction := source_rests[source_index].origin.direction_to(
+		source_rests[source_child].origin
+	)
+	var target_direction := target_rests[target_index].origin.direction_to(
+		target_rests[target_child].origin
+	)
+	return Basis(Quaternion(target_direction, source_direction)) * target_rests[target_index].basis
+
+
+func _validate_segment_directions(source: Skeleton3D, target: Skeleton3D) -> void:
+	for target_name in Map.DIRECTION_CHILDREN:
+		var child_name: StringName = Map.direction_child_for_target(target_name)
+		var source_parent := source.find_bone(Map.source_for_target(target_name))
+		var source_child := source.find_bone(Map.source_direction_child_for_target(target_name))
+		var target_parent := target.find_bone(target_name)
+		var target_child := target.find_bone(child_name)
+		var source_direction := source.get_bone_global_pose(source_parent).origin.direction_to(
+			source.get_bone_global_pose(source_child).origin
+		)
+		var target_direction := target.get_bone_global_pose(target_parent).origin.direction_to(
+			target.get_bone_global_pose(target_child).origin
+		)
+		_check(
+			source_direction.angle_to(target_direction) <= ROTATION_TOLERANCE,
+			"%s segment direction matches source" % target_name,
+		)
 
 
 func _variant_is_finite(value: Variant) -> bool:
