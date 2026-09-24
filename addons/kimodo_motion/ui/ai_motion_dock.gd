@@ -15,6 +15,9 @@ const HumanoidRetargetBaker := preload(
 const HumanoidFixture := preload(
 	"res://addons/kimodo_motion/retargeting/humanoid_fixture.gd"
 )
+const HumanoidCharacterBaker := preload(
+	"res://addons/kimodo_motion/retargeting/humanoid_character_baker.gd"
+)
 
 var _client: Node
 var _generation_client: Node
@@ -40,6 +43,7 @@ var _generation_details_button: Button
 var _generation_details_text: RichTextLabel
 var _preview: Control
 var _humanoid_preview: Control
+var _character_preview: Control
 var _preview_selection: OptionButton
 var _play_button: Button
 var _loop_toggle: CheckButton
@@ -53,11 +57,20 @@ var _humanoid_directory_edit: LineEdit
 var _humanoid_name_edit: LineEdit
 var _humanoid_save_button: Button
 var _humanoid_save_status: Label
+var _character_target_picker: Control
+var _character_clear_button: Button
+var _character_preview_button: Button
+var _character_status: Label
+var _character_directory_edit: LineEdit
+var _character_name_edit: LineEdit
+var _character_save_button: Button
+var _character_save_status: Label
 var _save_directory_edit: LineEdit
 var _save_name_edit: LineEdit
 var _save_button: Button
 var _save_status: Label
 var _humanoid_fixture: PackedScene
+var _character_target: PackedScene
 
 
 func configure(
@@ -250,10 +263,17 @@ func _build_ui() -> void:
 	_humanoid_preview.camera_view_changed.connect(_on_camera_view_changed)
 	_humanoid_preview.visible = false
 	_content.add_child(_humanoid_preview)
+	_character_preview = Preview.new()
+	_character_preview.configure("CharacterPreview", Color.WHITE, false)
+	_character_preview.camera_view_changed.connect(_on_camera_view_changed)
+	_character_preview.visible = false
+	_content.add_child(_character_preview)
 	_preview_selection = OptionButton.new()
 	_preview_selection.name = "PreviewSelection"
 	_preview_selection.add_item("SOMA-77 source")
 	_preview_selection.add_item("Godot humanoid")
+	_preview_selection.add_item("Skinned character")
+	_preview_selection.set_item_disabled(2, true)
 	_preview_selection.disabled = true
 	_preview_selection.visible = false
 	_preview_selection.item_selected.connect(_on_preview_selected)
@@ -352,6 +372,81 @@ func _build_ui() -> void:
 	_humanoid_save_status.text = "Retarget the current motion before saving."
 	_humanoid_save_status.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	_content.add_child(_humanoid_save_status)
+
+	_content.add_child(HSeparator.new())
+	var character_title := Label.new()
+	character_title.text = "Skinned character"
+	character_title.add_theme_font_size_override("font_size", 15)
+	_content.add_child(character_title)
+	var target_label := Label.new()
+	target_label.text = "Character scene"
+	_content.add_child(target_label)
+	var target_row := HBoxContainer.new()
+	_content.add_child(target_row)
+	if Engine.is_editor_hint():
+		var editor_picker := EditorResourcePicker.new()
+		editor_picker.base_type = "PackedScene"
+		editor_picker.resource_changed.connect(_on_character_target_changed)
+		_character_target_picker = editor_picker
+	else:
+		# Headless game-mode tests cannot instantiate editor-only controls.
+		# They exercise the same selection callback directly.
+		var test_picker := LineEdit.new()
+		test_picker.editable = false
+		test_picker.placeholder_text = "PackedScene target (editor picker)"
+		_character_target_picker = test_picker
+	_character_target_picker.name = "CharacterTarget"
+	_character_target_picker.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	target_row.add_child(_character_target_picker)
+	_character_clear_button = Button.new()
+	_character_clear_button.name = "ClearCharacterTarget"
+	_character_clear_button.text = "Clear"
+	_character_clear_button.disabled = true
+	_character_clear_button.pressed.connect(_on_clear_character_target_pressed)
+	target_row.add_child(_character_clear_button)
+	_character_preview_button = Button.new()
+	_character_preview_button.name = "PreviewOnCharacter"
+	_character_preview_button.text = "Preview on Character"
+	_character_preview_button.disabled = true
+	_character_preview_button.pressed.connect(_on_preview_character_pressed)
+	_content.add_child(_character_preview_button)
+	_character_status = Label.new()
+	_character_status.name = "CharacterStatus"
+	_character_status.text = "Select a compatible PackedScene target."
+	_character_status.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_content.add_child(_character_status)
+	var character_save_grid := GridContainer.new()
+	character_save_grid.columns = 2
+	character_save_grid.add_theme_constant_override("h_separation", 12)
+	character_save_grid.add_theme_constant_override("v_separation", 5)
+	_content.add_child(character_save_grid)
+	var character_directory_label := Label.new()
+	character_directory_label.text = "Directory"
+	character_save_grid.add_child(character_directory_label)
+	_character_directory_edit = LineEdit.new()
+	_character_directory_edit.name = "CharacterTakeDirectory"
+	_character_directory_edit.text = "res://animations/kimodo"
+	_character_directory_edit.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	character_save_grid.add_child(_character_directory_edit)
+	var character_name_label := Label.new()
+	character_name_label.text = "Name"
+	character_save_grid.add_child(character_name_label)
+	_character_name_edit = LineEdit.new()
+	_character_name_edit.name = "CharacterTakeName"
+	_character_name_edit.text = "kimodo_character_motion"
+	_character_name_edit.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	character_save_grid.add_child(_character_name_edit)
+	_character_save_button = Button.new()
+	_character_save_button.name = "SaveCharacterTake"
+	_character_save_button.text = "Save Character Take"
+	_character_save_button.disabled = true
+	_character_save_button.pressed.connect(_on_save_character_take_pressed)
+	_content.add_child(_character_save_button)
+	_character_save_status = Label.new()
+	_character_save_status.name = "CharacterTakeStatus"
+	_character_save_status.text = "Preview a motion on the selected character before saving."
+	_character_save_status.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_content.add_child(_character_save_status)
 
 	_content.add_child(HSeparator.new())
 	var save_title := Label.new()
@@ -590,28 +685,33 @@ func _on_play_pause_pressed() -> void:
 	var next_playing: bool = not _preview.is_playing()
 	_preview.set_playing(next_playing)
 	_humanoid_preview.set_playing(next_playing)
+	_character_preview.set_playing(next_playing)
 	_play_button.text = "Pause" if next_playing else "Play"
 
 
 func _on_loop_toggled(enabled: bool) -> void:
 	_preview.set_looping(enabled)
 	_humanoid_preview.set_looping(enabled)
+	_character_preview.set_looping(enabled)
 
 
 func _on_camera_view_changed(yaw: float, pitch: float, distance: float) -> void:
 	_preview.set_camera_view(yaw, pitch, distance)
 	_humanoid_preview.set_camera_view(yaw, pitch, distance)
+	_character_preview.set_camera_view(yaw, pitch, distance)
 
 
 func _on_follow_root_toggled(enabled: bool) -> void:
 	_preview.set_camera_follow_root(enabled)
 	_humanoid_preview.set_camera_follow_root(enabled)
+	_character_preview.set_camera_follow_root(enabled)
 
 
 func _on_reset_camera_pressed() -> void:
 	_preview.reset_camera_view()
 	var view: Dictionary = _preview.camera_view()
 	_humanoid_preview.set_camera_view(view["yaw"], view["pitch"], view["distance"])
+	_character_preview.set_camera_view(view["yaw"], view["pitch"], view["distance"])
 
 
 func _process(_delta: float) -> void:
@@ -637,11 +737,13 @@ func _on_scrub_value_changed(value: float) -> void:
 func _seek_previews(time: float) -> void:
 	_preview.seek(time)
 	_humanoid_preview.seek(time)
+	_character_preview.seek(time)
 
 
 func _on_preview_selected(index: int) -> void:
 	_preview.visible = index == 0 and _preview.has_motion()
 	_humanoid_preview.visible = index == 1 and _humanoid_preview.has_motion()
+	_character_preview.visible = index == 2 and _character_preview.has_motion()
 
 
 func _on_retarget_humanoid_pressed() -> void:
@@ -664,7 +766,11 @@ func _on_retarget_humanoid_pressed() -> void:
 		_preview.motion_scene(), template_root
 	)
 	template_root.free()
-	if motion == null or not _humanoid_preview.set_motion(motion):
+	if motion == null:
+		_set_retarget_error("The current motion could not be retargeted to the humanoid fixture.")
+		return
+	_clear_character_preview()
+	if not _humanoid_preview.set_motion(motion):
 		_set_retarget_error("The current motion could not be retargeted to the humanoid fixture.")
 		return
 	_humanoid_preview.set_looping(_loop_toggle.button_pressed)
@@ -687,6 +793,7 @@ func _set_retarget_error(message: String) -> void:
 
 
 func _clear_humanoid_preview() -> void:
+	_clear_character_preview()
 	if _humanoid_preview != null:
 		_humanoid_preview.clear_motion()
 		_humanoid_preview.visible = false
@@ -713,6 +820,7 @@ func _update_retarget_availability() -> void:
 	_humanoid_save_button.disabled = (
 		generating or _humanoid_preview == null or not _humanoid_preview.has_motion()
 	)
+	_update_character_availability()
 
 
 func _on_save_humanoid_take_pressed() -> void:
@@ -745,6 +853,165 @@ func _on_save_humanoid_take_pressed() -> void:
 func _set_humanoid_save_error(message: String) -> void:
 	_humanoid_save_status.modulate = Color(1.0, 0.35, 0.3)
 	_humanoid_save_status.text = message
+
+
+func _on_character_target_changed(resource: Resource) -> void:
+	_clear_character_preview()
+	_character_target = null
+	_character_clear_button.disabled = resource == null
+	if resource == null:
+		_character_status.modulate = Color(0.7, 0.72, 0.76)
+		_character_status.text = "Select a compatible PackedScene target."
+		_update_character_availability()
+		return
+	if not resource is PackedScene:
+		_set_character_error("Character target must be a PackedScene resource.")
+		return
+	var instance := (resource as PackedScene).instantiate()
+	if not instance is Node3D:
+		instance.free()
+		_set_character_error("Character target root must be a Node3D.")
+		return
+	var error := HumanoidCharacterBaker.validate_target(instance)
+	if not error.is_empty():
+		instance.free()
+		_set_character_error(error)
+		return
+	var skeleton := _find_first_node(instance, "Skeleton3D") as Skeleton3D
+	var bone_count := skeleton.get_bone_count()
+	var skinned_meshes := 0
+	for found in instance.find_children("*", "MeshInstance3D", true, false):
+		if (found as MeshInstance3D).skin != null:
+			skinned_meshes += 1
+	instance.free()
+	_character_target = resource as PackedScene
+	_character_status.modulate = Color(0.25, 0.85, 0.45)
+	_character_status.text = "Compatible target: %d bones, %d skinned meshes." % [
+		bone_count, skinned_meshes,
+	]
+	_update_character_availability()
+
+
+func _on_clear_character_target_pressed() -> void:
+	if _character_target_picker is EditorResourcePicker:
+		(_character_target_picker as EditorResourcePicker).edited_resource = null
+	_on_character_target_changed(null)
+
+
+func _on_preview_character_pressed() -> void:
+	if _character_target == null:
+		_set_character_error("Select a compatible character scene first.")
+		return
+	if _humanoid_preview == null or not _humanoid_preview.has_motion():
+		_set_character_error("Retarget the current motion to the Godot humanoid first.")
+		return
+	var character_root := _character_target.instantiate() as Node3D
+	if character_root == null:
+		_set_character_error("The selected character scene could not be instantiated.")
+		return
+	var motion: RefCounted = HumanoidCharacterBaker.create_motion(
+		_humanoid_preview.motion_scene(), character_root
+	)
+	if motion == null:
+		character_root.free()
+		_set_character_error("The humanoid motion could not be applied to this character.")
+		return
+	if not _character_preview.set_motion(motion):
+		_set_character_error("The character preview could not accept the retargeted motion.")
+		return
+	_character_preview.set_looping(_loop_toggle.button_pressed)
+	_character_preview.seek(_preview.current_position())
+	_character_preview.set_playing(_preview.is_playing())
+	_character_preview.set_camera_follow_root(_follow_root_toggle.button_pressed)
+	var view: Dictionary = _preview.camera_view()
+	_character_preview.set_camera_view(view["yaw"], view["pitch"], view["distance"])
+	_preview_selection.visible = true
+	_preview_selection.disabled = false
+	_preview_selection.set_item_disabled(2, false)
+	_preview_selection.select(2)
+	_on_preview_selected(2)
+	_character_status.modulate = Color(0.25, 0.85, 0.45)
+	_character_status.text = "Character preview ready with editable animation 'motion'."
+	_character_save_status.modulate = Color(0.7, 0.72, 0.76)
+	_character_save_status.text = "Character preview is ready to save."
+	_update_character_availability()
+
+
+func _clear_character_preview() -> void:
+	if _character_preview != null:
+		_character_preview.clear_motion()
+		_character_preview.visible = false
+	if _preview_selection != null and _preview_selection.selected == 2:
+		if _humanoid_preview != null and _humanoid_preview.has_motion():
+			_preview_selection.select(1)
+			_on_preview_selected(1)
+		else:
+			_preview_selection.select(0)
+	if _preview_selection != null:
+		_preview_selection.set_item_disabled(2, true)
+	if _character_save_status != null:
+		_character_save_status.modulate = Color(0.7, 0.72, 0.76)
+		_character_save_status.text = "Preview a motion on the selected character before saving."
+	if _character_status != null and _character_target != null:
+		_character_status.modulate = Color(0.7, 0.72, 0.76)
+		_character_status.text = "Compatible target selected; preview the current humanoid motion."
+	_update_character_availability()
+
+
+func _update_character_availability() -> void:
+	if _character_preview_button == null:
+		return
+	var generating: bool = (
+		_generation_client != null
+		and _generation_client.state == GenerationClient.GenerationState.GENERATING
+	)
+	_character_preview_button.disabled = (
+		generating
+		or _character_target == null
+		or _humanoid_preview == null
+		or not _humanoid_preview.has_motion()
+	)
+	_character_save_button.disabled = (
+		generating or _character_preview == null or not _character_preview.has_motion()
+	)
+
+
+func _on_save_character_take_pressed() -> void:
+	var directory := _character_directory_edit.text.strip_edges()
+	var take_name := _character_name_edit.text.strip_edges()
+	if not directory.begins_with("res://"):
+		_set_character_save_error("Directory must be project-relative and begin with res://.")
+		return
+	if take_name.is_empty():
+		_set_character_save_error("Take name cannot be empty.")
+		return
+	if _character_preview == null or not _character_preview.has_motion():
+		_set_character_save_error("There is no skinned character motion to save.")
+		return
+	var result := HumanoidCharacterBaker.save_motion(
+		_character_preview.motion_scene(), directory, take_name
+	)
+	if result.is_empty():
+		_set_character_save_error(
+			"Godot could not save the character take. See the Output panel for details."
+		)
+		return
+	_character_save_status.modulate = Color(0.25, 0.85, 0.45)
+	_character_save_status.text = "Saved %s with animation '%s'." % [
+		result["scene_path"], result["animation_name"],
+	]
+	_refresh_saved_resource(result["scene_path"])
+
+
+func _set_character_error(message: String) -> void:
+	_character_status.modulate = Color(1.0, 0.35, 0.3)
+	_character_status.text = message
+	_update_character_availability()
+
+
+func _set_character_save_error(message: String) -> void:
+	_character_save_status.modulate = Color(1.0, 0.35, 0.3)
+	_character_save_status.text = message
 
 
 func _on_save_native_take_pressed() -> void:

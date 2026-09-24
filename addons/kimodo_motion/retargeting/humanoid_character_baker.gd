@@ -19,6 +19,10 @@ static func create_motion(source_root: Node, character_root: Node3D) -> Characte
 	var source_skeleton := _find_first(source_root, "Skeleton3D") as Skeleton3D
 	var source_player := _find_first(source_root, "AnimationPlayer") as AnimationPlayer
 	var target_skeleton := _find_first(character_root, "Skeleton3D") as Skeleton3D
+	var target_error := validate_target(character_root)
+	if not target_error.is_empty():
+		push_error(target_error)
+		return null
 	var error := validate(source_skeleton, source_player, target_skeleton)
 	if not error.is_empty():
 		push_error(error)
@@ -48,6 +52,39 @@ static func create_motion(source_root: Node, character_root: Node3D) -> Characte
 	motion.skeleton = target_skeleton
 	motion.player = player
 	return motion
+
+
+static func validate_target(character_root: Node) -> String:
+	if character_root == null:
+		return "Character target could not be instantiated"
+	var skeletons := character_root.find_children("*", "Skeleton3D", true, false)
+	if character_root is Skeleton3D:
+		skeletons.push_front(character_root)
+	if skeletons.size() != 1:
+		return "Character target must contain exactly one Skeleton3D (found %d)" % skeletons.size()
+	var skeleton := skeletons[0] as Skeleton3D
+	for bone_name in ["Root", "Hips"]:
+		if skeleton.find_bone(bone_name) < 0:
+			return "Character skeleton is missing required bone %s" % bone_name
+	for bone_name in HumanoidMap.REQUIRED_TARGETS:
+		if skeleton.find_bone(bone_name) < 0:
+			return "Character skeleton is missing required bone %s" % bone_name
+	for bone_index in skeleton.get_bone_count():
+		if not skeleton.get_bone_rest(bone_index).is_finite():
+			return "Character skeleton has a non-finite rest transform at bone %s" % skeleton.get_bone_name(bone_index)
+	var skinned_meshes := 0
+	for found in character_root.find_children("*", "MeshInstance3D", true, false):
+		var mesh_instance := found as MeshInstance3D
+		if mesh_instance.skin == null:
+			continue
+		if mesh_instance.skin.get_bind_count() <= 0:
+			return "Character mesh %s has an empty Skin binding" % mesh_instance.name
+		skinned_meshes += 1
+	if skinned_meshes == 0:
+		return "Character target must contain at least one skinned MeshInstance3D"
+	if character_root.get_node_or_null(PLAYER_NODE_NAME) != null:
+		return "Character target already owns the reserved %s node" % PLAYER_NODE_NAME
+	return ""
 
 
 static func validate(

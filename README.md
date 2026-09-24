@@ -72,6 +72,20 @@ the same playback time. Enter a separate humanoid take name and press **Save
 Humanoid Take** to create a self-contained `.tscn` and `.res`; errors and
 output paths are reported independently from generation and source saving.
 
+To preview on a skinned rig, choose a compatible `PackedScene` under **Skinned
+character** after creating the humanoid intermediate. The target must contain
+exactly one `Skeleton3D`, the required Godot humanoid body names including
+`Root` and `Hips`, finite rest transforms, and at least one bound skin. Press
+**Preview on Character** to add the textured character as a third synchronized
+preview with the same playback, scrub, orbit, zoom, and root-follow controls.
+**Clear** removes only the target and derived preview.
+
+Enter a project-relative output directory and take name, then press **Save
+Character Take**. The result is a uniquely named, self-contained `.tscn` that
+does not modify the imported character or live previews. Open the saved scene,
+select `KimodoAnimationPlayer`, and choose its `motion` animation to inspect or
+edit the character-specific tracks in Godot's Animation panel.
+
 To keep a generated result, enter a project-relative directory beginning with
 `res://` and a take name, then press **Save SOMA-77 Native Take**. The dock creates a
 self-contained `.tscn` plus `.res` `AnimationLibrary`, selects the scene in the

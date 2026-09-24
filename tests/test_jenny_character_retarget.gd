@@ -46,6 +46,39 @@ func _run() -> void:
 		Baker.validate(source_skeleton, source_player, target_skeleton).is_empty(),
 		"Jenny satisfies the humanoid character contract",
 	)
+	_check(Baker.validate_target(character).is_empty(), "Jenny satisfies target-scene validation")
+	var multiple_skeletons := JENNY_SCENE.instantiate() as Node3D
+	multiple_skeletons.add_child(Skeleton3D.new())
+	_check(
+		Baker.validate_target(multiple_skeletons).contains("exactly one Skeleton3D"),
+		"multiple target skeletons are rejected",
+	)
+	multiple_skeletons.free()
+	var no_skin := SOURCE_SCENE.instantiate()
+	_check(
+		Baker.validate_target(no_skin).contains("skinned MeshInstance3D"),
+		"a target without skin bindings is rejected",
+	)
+	no_skin.free()
+	var non_finite := JENNY_SCENE.instantiate() as Node3D
+	var non_finite_skeleton := _find_first(non_finite, "Skeleton3D") as Skeleton3D
+	var invalid_rest := non_finite_skeleton.get_bone_rest(0)
+	invalid_rest.origin.x = NAN
+	non_finite_skeleton.set_bone_rest(0, invalid_rest)
+	_check(
+		Baker.validate_target(non_finite).contains("non-finite rest"),
+		"a non-finite target rest is rejected",
+	)
+	non_finite.free()
+	var reserved_player := JENNY_SCENE.instantiate() as Node3D
+	var conflict := AnimationPlayer.new()
+	conflict.name = Baker.PLAYER_NODE_NAME
+	reserved_player.add_child(conflict)
+	_check(
+		Baker.validate_target(reserved_player).contains("reserved"),
+		"reserved animation ownership is rejected",
+	)
+	reserved_player.free()
 
 	var motion: RefCounted = Baker.create_motion(source, character)
 	_check(motion != null, "humanoid motion retargets to the skinned character")

@@ -36,6 +36,8 @@ func _run() -> void:
 		var save_action: Button = dock.find_child("SaveNativeTake", true, false)
 		var retarget_action: Button = dock.find_child("RetargetHumanoid", true, false)
 		var humanoid_save_action: Button = dock.find_child("SaveHumanoidTake", true, false)
+		var character_preview_action: Button = dock.find_child("PreviewOnCharacter", true, false)
+		var character_save_action: Button = dock.find_child("SaveCharacterTake", true, false)
 		var preview_selection: OptionButton = dock.find_child("PreviewSelection", true, false)
 		_check(status.text.contains("Disconnected"), "cycle %d begins disconnected" % cycle)
 		_check(scroll != null, "dock content is wrapped in a scroll container")
@@ -58,6 +60,8 @@ func _run() -> void:
 		_check(save_action.disabled, "native save is disabled without a validated preview")
 		_check(retarget_action.disabled, "retarget is disabled without a validated preview")
 		_check(humanoid_save_action.disabled, "humanoid save is disabled without a retarget")
+		_check(character_preview_action.disabled, "character preview is disabled without a target")
+		_check(character_save_action.disabled, "character save is disabled without a preview")
 		_check(not preview_selection.visible, "preview selection is hidden before retargeting")
 
 		client._set_state(Client.ConnectionState.CONNECTING, "Connecting for test…")

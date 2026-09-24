@@ -25,6 +25,7 @@ var _follow_bone_index := -1
 var _looping := true
 var _preview_name := "MotionPreview"
 var _line_color := Color(0.25, 0.95, 0.65)
+var _show_skeleton_lines := true
 var _camera_yaw := DEFAULT_CAMERA_YAW
 var _camera_pitch := DEFAULT_CAMERA_PITCH
 var _camera_distance := DEFAULT_CAMERA_DISTANCE
@@ -33,9 +34,14 @@ var _follow_root := true
 var _orbiting := false
 
 
-func configure(preview_name: String, line_color: Color) -> void:
+func configure(
+	preview_name: String,
+	line_color: Color,
+	show_skeleton_lines: bool = true,
+) -> void:
 	_preview_name = preview_name
 	_line_color = line_color
+	_show_skeleton_lines = show_skeleton_lines
 	name = _preview_name
 	if _lines != null:
 		(_lines.material_override as StandardMaterial3D).albedo_color = _line_color
@@ -198,6 +204,11 @@ func _build_viewport() -> void:
 	settings.ambient_light_energy = 0.7
 	environment.environment = settings
 	_world_root.add_child(environment)
+	var light := DirectionalLight3D.new()
+	light.name = "PreviewLight"
+	light.rotation_degrees = Vector3(-48.0, -28.0, 0.0)
+	light.light_energy = 1.2
+	_world_root.add_child(light)
 
 	_camera = Camera3D.new()
 	_camera.name = "PreviewCamera"
@@ -218,7 +229,9 @@ func _build_viewport() -> void:
 func _process(_delta: float) -> void:
 	_update_follow_target()
 	_update_camera()
-	if _skeleton == null or _lines == null:
+	if _skeleton == null or _lines == null or not _show_skeleton_lines:
+		if _lines != null and not _show_skeleton_lines:
+			_lines.mesh = null
 		return
 	var mesh := ImmediateMesh.new()
 	mesh.surface_begin(Mesh.PRIMITIVE_LINES)
