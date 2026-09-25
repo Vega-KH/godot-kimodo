@@ -4,15 +4,17 @@ An open-source Godot 4.7 editor extension for authoring humanoid animation
 with the local `kimodo-godot-server` backend.
 
 The project has a working engineering vertical slice. Its editor dock connects
-asynchronously to a loopback MMCP backend, submits one typed text-to-motion
-request, validates the returned SOMA-77 glTF, and previews the result. Motion
+asynchronously to a loopback MMCP backend, submits typed text-to-motion
+requests for one or two takes, validates every SOMA-77 glTF animation and its
+matching metadata, and previews the selected result. Motion
 can be saved as native SOMA-77 data, retargeted through a deterministic Godot
 humanoid fixture, previewed on a selected exact-name compatible character, and
 saved on the repository's skinned Auto-Rig Pro acceptance character.
 
-The intended basic product workflow is not complete yet: only one candidate is
-generated, comparison is absent, and saving an artifact is not yet an explicit
-undoable Accept operation into an animation destination.
+The intended basic product workflow is not complete yet: take switching now
+works, but saving an artifact is not yet an explicit undoable Accept operation
+into an animation destination, and full-skeleton finger retargeting remains a
+known gap.
 
 ## Reference environment
 
@@ -46,16 +48,18 @@ plugin restart, native baking, and short playback scene runs, with:
 ## AI Motion dock
 
 Enable **Kimodo Motion Studio** under **Project > Project Settings > Plugins**.
-The **AI Motion** dock appears on the right and creates a new unsaved
-`MotionDraft`. In **Motion draft and target**, select the project-owned
-character scene before generating. The draft records its project-relative path
-and a deterministic signature of the skeleton hierarchy and rest transforms.
+The **AI Motion** dock appears on the right at a quiet session chooser. Create a
+named session or open a recent/project-owned `.tres`; backend, generation,
+preview, and output controls do not appear until a session is active. Existing
+Goal 13 `MotionDraft` resources can be opened and are migrated to a new
+`KimodoSession` without rewriting the original file.
 
-Use **Save As** to create a uniquely named `.tres` under the project. **Save**
-then updates that explicitly opened draft, while **New** starts clean and
-**Load** restores an existing draft without contacting the backend or starting
-generation. Missing targets and saved artifacts are reported individually;
-the remaining draft stays usable.
+Sessions save atomically under `res://animations/kimodo/sessions`. There is no
+manual session Save button: editable fields are debounced, while session
+creation, target changes, Generate, animation saves, session switches, and
+editor shutdown force persistence. A visible Saved/Saving/error indicator
+reports the state. The active workspace is divided into **Generate**,
+**Preview**, and **Output** tabs instead of presenting every control at once.
 
 The connection defaults to `http://127.0.0.1:8000`. Start
 `kimodo-godot-server`, press **Connect**, and confirm the summary reports
@@ -64,17 +68,29 @@ contact channels. Stop the backend and press **Refresh** to exercise the
 recoverable error state; technical transport or contract details are
 expandable without blocking the editor.
 
-Once connected, enter a prompt and choose a frame count, denoising-step count,
-and seed, then press **Generate**. The request runs asynchronously. Cancel stops
+Once connected, choose a compatible character, enter a prompt, and choose a
+frame count, denoising-step count, seed, and one or two takes, then press
+**Generate**. Two is the current tested maximum even though the dependency
+advertises a larger protocol ceiling. The request runs asynchronously. Cancel stops
 the Godot client from waiting for that response; the current direct MMCP server
 does not yet prove that active model inference stopped. The default 100
 denoising steps favors normal-quality previews; lower values trade quality for
 speed, while values up to 200 allow a slower higher-quality pass. A valid
 response starts playing in the embedded SOMA-77 preview with shared Pause/Play,
-Loop, and timeline-scrub controls. The open draft appends an immutable
+Loop, and timeline-scrub controls. Use the take selector to switch variations
+without changing playback time or the camera. The open session appends an immutable
 generation record containing the exact request and capability documents,
 protocol/model/fps/skeleton identity, UTC time, and request/capability/response
-SHA-256 hashes. Editing the next prompt does not rewrite that record.
+SHA-256 hashes plus a stable ID, sample index/name, and decoded-motion hash for
+each take. All takes in one response share the request seed. Editing the next
+prompt does not rewrite that record.
+
+Unsaved take payloads are intentionally transient. They remain in memory while
+the session is open and are discarded on session switch or editor shutdown;
+the session retains only their provenance and summaries. Only a take the user
+explicitly saves becomes a durable animation artifact. Reopening offline shows
+the prior take summaries honestly but does not pretend discarded previews are
+still playable.
 
 The preview follows planar root motion by default so locomotion remains in
 frame. Left-drag directly on the preview to orbit, use the mouse wheel to zoom,
@@ -102,7 +118,8 @@ Character Take**. The result is a uniquely named, self-contained `.tscn` that
 does not modify the imported character or live previews. Open the saved scene,
 select `KimodoAnimationPlayer`, and choose its `motion` animation to inspect or
 edit the character-specific tracks in Godot's Animation panel. Successful
-character, humanoid, and SOMA-77 saves are attached to the open draft as saved
+character, humanoid, and SOMA-77 saves are attached to the open session and
+selected take as saved
 artifacts; previews are never recorded as artifacts and saved artifacts are not
 yet labeled accepted.
 
@@ -114,7 +131,7 @@ dock, and adds a numeric suffix rather than overwriting an existing take.
 Saving does not interrupt or transfer ownership of the temporary preview, and
 a saved take remains usable after the backend stops.
 
-The entire dock scrolls vertically when its contents exceed the available
+Each workspace tab scrolls with the dock when its contents exceed the available
 editor height, including after the animation preview becomes visible.
 
 For a lightweight connection-only check, start the server with
@@ -150,6 +167,7 @@ The corresponding end-to-end dock-generation check is:
 & 'C:\Godot-472\Godot_v4.7.2-stable_win64_console.exe' `
   --headless --path . --script res://tests/test_live_generation.gd -- `
   --url http://127.0.0.1:8000 `
+  --takes 2 `
   --steps 200 `
   --native-dir res://tests/.live `
   --humanoid-dir res://tests/.live

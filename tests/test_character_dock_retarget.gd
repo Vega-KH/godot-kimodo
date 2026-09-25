@@ -21,6 +21,9 @@ func _run() -> void:
 	var dock := Dock.new()
 	root.add_child(dock)
 	await process_frame
+	(dock.find_child("NewSession", true, false) as Button).emit_signal("pressed")
+	await process_frame
+	var session_path: String = dock._draft_path
 	var picker := dock.find_child("CharacterTarget", true, false) as Control
 	var clear := dock.find_child("ClearCharacterTarget", true, false) as Button
 	var preview_action := dock.find_child("PreviewOnCharacter", true, false) as Button
@@ -144,6 +147,8 @@ func _run() -> void:
 	saved_scene.queue_free()
 	dock.queue_free()
 	await process_frame
+	if FileAccess.file_exists(session_path):
+		DirAccess.remove_absolute(ProjectSettings.globalize_path(session_path))
 	_remove_test_directory(relative_directory)
 	_check(root.get_child_count() == 0, "character dock workflow leaves no nodes behind")
 	_finish()

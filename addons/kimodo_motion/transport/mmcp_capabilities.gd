@@ -12,6 +12,7 @@ class ModelCapabilities extends RefCounted:
 	var constraint_types: Array[String]
 	var contact_joints: Array[String]
 	var response_formats: Array[String]
+	var max_num_samples: int
 
 
 static func parse_json_text(text: String) -> Dictionary:
@@ -62,6 +63,15 @@ static func parse_payload(payload: Variant) -> Dictionary:
 		return _error("invalid_capabilities", "The model fps is missing or invalid.")
 	if not is_equal_approx(float(model["fps"]), 30.0):
 		return _error("unsupported_fps", "The initial plugin requires a 30 fps model.")
+	var limits: Variant = model.get("limits")
+	if not limits is Dictionary:
+		return _error("invalid_capabilities", "The model limits are missing or invalid.")
+	var raw_max_num_samples: Variant = limits.get("max_num_samples")
+	if not raw_max_num_samples is int and not raw_max_num_samples is float:
+		return _error("invalid_capabilities", "The model sample limit is missing or invalid.")
+	var max_num_samples := int(raw_max_num_samples)
+	if max_num_samples < 1:
+		return _error("invalid_capabilities", "The model reports an invalid sample limit.")
 
 	var skeleton: Variant = model.get("canonical_skeleton")
 	if not skeleton is Dictionary:
@@ -106,6 +116,7 @@ static func parse_payload(payload: Variant) -> Dictionary:
 	capabilities.constraint_types = constraints
 	capabilities.contact_joints = contacts
 	capabilities.response_formats = formats
+	capabilities.max_num_samples = max_num_samples
 	return {"ok": true, "capabilities": capabilities}
 
 

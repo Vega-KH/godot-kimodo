@@ -91,6 +91,20 @@ func clear_motion() -> void:
 		_lines.mesh = null
 
 
+func release_motion_scene() -> Node:
+	var released := _motion_scene
+	if released != null and is_instance_valid(released) and released.get_parent() == _world_root:
+		_world_root.remove_child(released)
+	_motion_scene = null
+	_skeleton = null
+	_player = null
+	_animation_name = &""
+	_follow_bone_index = -1
+	if _lines != null:
+		_lines.mesh = null
+	return released
+
+
 func set_playing(playing: bool) -> void:
 	if _player == null:
 		return

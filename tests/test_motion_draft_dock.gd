@@ -1,24 +1,17 @@
 extends SceneTree
 
-const Capabilities := preload(
-	"res://addons/kimodo_motion/transport/mmcp_capabilities.gd"
-)
-const CapabilitiesClient := preload(
-	"res://addons/kimodo_motion/transport/mmcp_capabilities_client.gd"
-)
-const GenerationClient := preload(
-	"res://addons/kimodo_motion/transport/mmcp_generation_client.gd"
-)
-const MotionResponse := preload(
-	"res://addons/kimodo_motion/transport/mmcp_motion_response.gd"
-)
+const Capabilities := preload("res://addons/kimodo_motion/transport/mmcp_capabilities.gd")
+const Client := preload("res://addons/kimodo_motion/transport/mmcp_capabilities_client.gd")
+const GenerationClient := preload("res://addons/kimodo_motion/transport/mmcp_generation_client.gd")
+const MotionResponse := preload("res://addons/kimodo_motion/transport/mmcp_motion_response.gd")
 const Dock := preload("res://addons/kimodo_motion/ui/ai_motion_dock.gd")
+const JENNY := preload("res://tests/characters/fixtures/Jenny03.glb")
 const JENNY_PATH := "res://tests/characters/fixtures/Jenny03.glb"
-const JENNY_SCENE := preload(JENNY_PATH)
-const CAPABILITIES_PATH := "res://tests/fixtures/soma77_capabilities.json"
-const MOTION_PATH := "res://tests/fixtures/soma77_mmcp_1_0.gltf"
+const CAPABILITIES_FIXTURE := "res://tests/fixtures/soma77_capabilities.json"
+const MOTION_FIXTURE := "res://tests/fixtures/soma77_mmcp_1_0.gltf"
 
 var _failures: Array[String] = []
+var _cleanup_paths: Array[String] = []
 
 
 func _init() -> void:
@@ -26,177 +19,142 @@ func _init() -> void:
 
 
 func _run() -> void:
-	var initial_root_child_count := root.get_child_count()
-	var base_directory := "res://tests/.goal13_dock_%d_%d" % [
-		OS.get_process_id(), Time.get_ticks_usec()
-	]
 	var fixture_hash := FileAccess.get_sha256(JENNY_PATH)
-	var capability_text := FileAccess.get_file_as_string(CAPABILITIES_PATH)
-	var parsed_capabilities := Capabilities.parse_json_text(capability_text)
-	_check(parsed_capabilities["ok"], "capability fixture parses")
-	var response_bytes := FileAccess.get_file_as_bytes(MOTION_PATH)
-	var parsed_motion := MotionResponse.parse(response_bytes, 30, 30.0)
-	_check(parsed_motion["ok"], "motion fixture parses")
-	if not parsed_capabilities["ok"] or not parsed_motion["ok"]:
-		_finish()
-		return
-
-	var capability_client := CapabilitiesClient.new()
-	var generation_client := GenerationClient.new()
-	root.add_child(capability_client)
-	root.add_child(generation_client)
+	var client := Client.new()
+	root.add_child(client)
+	var generation := GenerationClient.new()
+	root.add_child(generation)
 	var dock := Dock.new()
-	dock.configure(capability_client, generation_client)
+	dock.configure(client, generation)
 	root.add_child(dock)
 	await process_frame
 
-	var target_picker := dock.find_child("CharacterTarget", true, false)
-	var prompt := dock.find_child("MotionPrompt", true, false) as TextEdit
-	_check(_tree_position(dock, target_picker) < _tree_position(dock, prompt), "target appears before prompt")
-	dock._on_character_target_changed(JENNY_SCENE)
-	_check(dock._character_target == JENNY_SCENE, "Jenny is selected before generation")
-	_check(dock._draft.target_scene_path == JENNY_PATH, "open draft owns the selected target")
+	var landing := dock.find_child("SessionLanding", true, false) as Control
+	var generate := dock.find_child("GenerateAction", true, false) as Button
+	_check(landing.visible, "dock starts at session chooser")
+	_check(not generate.is_visible_in_tree(), "generation UI is hidden before opening a session")
+	(dock.find_child("NewSessionTitle", true, false) as LineEdit).text = "Goal 14 dock test"
+	(dock.find_child("NewSession", true, false) as Button).emit_signal("pressed")
+	await process_frame
+	_cleanup_paths.append(dock._draft_path)
+	_check(dock._draft != null and dock._draft.title == "Goal 14 dock test", "new session is active")
+	_check(FileAccess.file_exists(dock._draft_path), "new session is immediately durable")
+	_check(not landing.visible and generate.is_visible_in_tree(), "workspace replaces the chooser")
+
+	dock._on_character_target_changed(JENNY)
 	var target_signature: String = dock._draft.target_skeleton_signature
-	_check(target_signature.length() == 64, "draft records target skeleton signature")
+	_check(target_signature.length() == 64, "session records the selected target")
+	var prompt := dock.find_child("MotionPrompt", true, false) as TextEdit
+	prompt.text = "Two versions of a friendly wave."
+	var take_count := dock.find_child("TakeCount", true, false) as SpinBox
+	take_count.value = 2
+	dock._flush_session()
 
-	prompt.text = "A person waves with their right hand."
-	(dock.find_child("DurationFrames", true, false) as SpinBox).value = 30
-	(dock.find_child("GenerationSeed", true, false) as SpinBox).value = 2468
-	(dock.find_child("DiffusionSteps", true, false) as SpinBox).value = 100
-	capability_client.capabilities = parsed_capabilities["capabilities"]
-	capability_client.last_response_json = capability_text
-	capability_client.state = CapabilitiesClient.ConnectionState.READY
-	var request_json := '{"prompt":"A person waves with their right hand.","seed":2468}'
-	generation_client.last_request_json = request_json
-	generation_client.last_response_bytes = response_bytes.duplicate()
-	generation_client._latest_motion = parsed_motion["motion"]
-	generation_client.state = GenerationClient.GenerationState.READY
+	var parsed_capabilities := Capabilities.parse_json_text(
+		FileAccess.get_file_as_string(CAPABILITIES_FIXTURE)
+	)
+	client.capabilities = parsed_capabilities["capabilities"]
+	client.last_response_json = FileAccess.get_file_as_string(CAPABILITIES_FIXTURE)
+	client._set_state(Client.ConnectionState.READY, "Connected for test.")
+	var response_bytes := _two_take_response()
+	var parsed := MotionResponse.parse(
+		response_bytes, 30, 30.0, client.capabilities.skeleton_payload
+	)
+	_check(parsed["ok"], "two-take fixture parses for dock coverage")
+	generation.last_request_json = JSON.stringify({"options": {"num_samples": 2, "seed": 1234}})
+	generation.last_response_bytes = response_bytes
+	generation._latest_motions.assign(parsed["motions"])
 	dock._on_motion_ready()
-	_check(dock._draft.generation_records.size() == 1, "validated result records provenance")
-	var record: Dictionary = dock._draft.active_generation_record()
-	_check(record["request_json"] == request_json, "dock preserves exact request JSON")
-	_check(record["model_id"] == "kimodo-soma-rp", "dock records returned model identity")
-	_check(record["response_sha256"] == FileAccess.get_sha256(MOTION_PATH), "dock records response hash")
-
-	var native_directory := base_directory.path_join("native")
-	(dock.find_child("NativeTakeDirectory", true, false) as LineEdit).text = native_directory
-	(dock.find_child("NativeTakeName", true, false) as LineEdit).text = "wave"
+	_check(dock._take_set.size() == 2, "dock retains two transient takes")
+	_check(dock._draft.generation_records.size() == 1, "session records generation provenance")
+	_check(dock._draft.active_generation_record()["request_seed"] == 1234, "take batch shares the request seed")
+	var summaries: Array = dock._draft.active_take_summaries()
+	_check(summaries.size() == 2, "session persists two take summaries")
+	_check(summaries[0]["payload_status"] == "transient", "take payload is not claimed durable")
+	var selector := dock.find_child("TakeSelection", true, false) as OptionButton
+	_check(selector.visible and selector.item_count == 2, "take selector exposes both takes")
+	var preview: Control = dock.find_child("MotionPreview", true, false)
+	var character_preview: Control = dock.find_child("CharacterPreview", true, false)
+	_check(character_preview.has_motion() and character_preview.visible, "generated take previews on the session character")
+	dock._on_camera_view_changed(0.25, 0.15, 4.0)
+	var expected_view: Dictionary = preview.camera_view()
+	(dock.find_child("FollowRoot", true, false) as CheckButton).button_pressed = false
+	dock._on_follow_root_toggled(false)
+	(dock.find_child("LoopMotion", true, false) as CheckButton).button_pressed = false
+	dock._on_loop_toggled(false)
+	dock._seek_previews(0.4)
+	selector.select(1)
+	selector.emit_signal("item_selected", 1)
+	_check(dock._take_set.active_index == 1, "second take becomes active")
+	_check(absf(preview.current_position() - 0.4) < 0.001, "take switch preserves playback time")
+	_check(character_preview.has_motion() and character_preview.visible, "take switch rebuilds selected-character preview")
+	_check(character_preview.camera_view() == expected_view, "take switch preserves camera state")
+	_check(not character_preview.camera_follows_root(), "take switch preserves root-follow state")
+	_check(character_preview.animation_player().get_animation("motion").loop_mode == Animation.LOOP_NONE, "take switch preserves loop state")
+	_check(dock._draft.selected_take_id == summaries[1]["take_id"], "selected take metadata updates")
+	_check(FileAccess.get_sha256(JENNY_PATH) == fixture_hash, "session generation never mutates Jenny")
+	var output_directory := "res://tests/.goal14_selected_take_%d" % OS.get_process_id()
+	(dock.find_child("NativeTakeDirectory", true, false) as LineEdit).text = output_directory
+	(dock.find_child("NativeTakeName", true, false) as LineEdit).text = "selected_take"
 	(dock.find_child("SaveNativeTake", true, false) as Button).emit_signal("pressed")
-	var native_scene := native_directory.path_join("wave.tscn")
-	var native_library := native_directory.path_join("wave.res")
-	_check(FileAccess.file_exists(native_scene), "native scene saves")
-	_check(FileAccess.file_exists(native_library), "native library saves")
-	_check(dock._draft.artifacts.has("soma77_scene"), "scene artifact is attached to draft")
-	_check(dock._draft.artifacts.has("soma77_library"), "library artifact is attached to draft")
+	var saved_scene := output_directory.path_join("selected_take.tscn")
+	var saved_library := output_directory.path_join("selected_take.res")
+	_cleanup_paths.append(saved_scene)
+	_cleanup_paths.append(saved_library)
+	_check(FileAccess.file_exists(saved_scene) and FileAccess.file_exists(saved_library), "selected take saves explicitly")
+	for artifact in dock._draft.artifacts.values():
+		_check(artifact["take_id"] == summaries[1]["take_id"], "saved artifacts belong only to the selected take")
 
-	var immutable_record: Dictionary = dock._draft.active_generation_record()
-	prompt.text = "A person sits down."
-	var draft_directory := base_directory.path_join("drafts")
-	(dock.find_child("MotionDraftDirectory", true, false) as LineEdit).text = draft_directory
-	(dock.find_child("MotionDraftName", true, false) as LineEdit).text = "jenny_wave"
-	(dock.find_child("SaveAsMotionDraft", true, false) as Button).emit_signal("pressed")
-	var draft_path := draft_directory.path_join("jenny_wave.tres")
-	_check(FileAccess.file_exists(draft_path), "draft saves through the dock")
-	_check(dock._draft.prompt == "A person sits down.", "editable intent updates before save")
-	_check(dock._draft.active_generation_record() == immutable_record, "saved intent does not rewrite provenance")
-
-	var saved_draft_id: String = dock._draft.draft_id
-	(dock.find_child("NewMotionDraft", true, false) as Button).emit_signal("pressed")
-	_check(dock._draft.draft_id != saved_draft_id, "New replaces the active draft identity")
-	_check(not dock._preview.has_motion(), "New clears generated source motion")
-	_check(
-		(dock.find_child("SaveNativeTake", true, false) as Button).disabled,
-		"New disables stale native-save actions",
-	)
-	_check(
-		(dock.find_child("NativeTakeStatus", true, false) as Label).text
-		== "Generate a validated motion before saving.",
-		"New clears stale native-save status",
-	)
-
-	dock.queue_free()
-	capability_client.queue_free()
-	generation_client.queue_free()
+	var session_path: String = dock._draft_path
+	(dock.find_child("SwitchSession", true, false) as Button).emit_signal("pressed")
 	await process_frame
+	_check(landing.visible and dock._draft == null, "switch returns to session chooser")
+	_check(dock._take_set.is_empty(), "unsaved take payloads are discarded on close")
+	_check((dock.find_child("RecentSessions", true, false) as OptionButton).item_count >= 1, "saved session appears in recent sessions")
 
-	var offline_capability_client := CapabilitiesClient.new()
-	var offline_generation_client := GenerationClient.new()
-	root.add_child(offline_capability_client)
-	root.add_child(offline_generation_client)
-	var reopened := Dock.new()
-	reopened.configure(offline_capability_client, offline_generation_client)
-	root.add_child(reopened)
-	await process_frame
-	var draft_picker := reopened.find_child("MotionDraftResource", true, false) as Control
-	if draft_picker is EditorResourcePicker:
-		(draft_picker as EditorResourcePicker).edited_resource = ResourceLoader.load(
-			draft_path, "KimodoMotionDraft", ResourceLoader.CACHE_MODE_IGNORE
+	var picker := dock.find_child("SessionResource", true, false) as Control
+	if picker is EditorResourcePicker:
+		(picker as EditorResourcePicker).edited_resource = ResourceLoader.load(
+			session_path, "KimodoSession", ResourceLoader.CACHE_MODE_IGNORE
 		)
 	else:
-		(draft_picker as LineEdit).text = draft_path
-	(reopened.find_child("LoadMotionDraft", true, false) as Button).emit_signal("pressed")
-	_check(reopened._draft_path == draft_path, "offline dock loads the saved draft")
-	_check(reopened._draft.prompt == "A person sits down.", "offline load restores editable intent")
-	_check(reopened._draft.target_scene_path == JENNY_PATH, "offline load restores target path")
-	_check(reopened._character_target == JENNY_SCENE, "offline load restores compatible target")
-	_check(reopened._draft.target_skeleton_signature == target_signature, "target identity round-trips")
-	_check(reopened._draft.generation_records.size() == 1, "offline load restores provenance")
-	_check(not reopened._preview.has_motion(), "offline load does not restore transient preview motion")
-	_check(
-		(reopened.find_child("SaveNativeTake", true, false) as Button).disabled,
-		"offline load keeps save actions disabled until generation",
-	)
-	_check(
-		offline_capability_client.state == CapabilitiesClient.ConnectionState.DISCONNECTED,
-		"loading a draft does not contact the backend",
-	)
-	_check(
-		offline_generation_client.state == GenerationClient.GenerationState.IDLE,
-		"loading a draft does not regenerate",
-	)
-	var details := reopened.find_child("MotionDraftDetails", true, false) as RichTextLabel
-	_check(details.get_parsed_text().contains("kimodo-soma-rp"), "read-only provenance is displayed")
-	_check(details.get_parsed_text().contains(native_scene), "artifact link is displayed")
-	_check(FileAccess.get_sha256(JENNY_PATH) == fixture_hash, "draft dock never modifies Jenny")
-
-	reopened.queue_free()
-	offline_capability_client.queue_free()
-	offline_generation_client.queue_free()
+		(picker as LineEdit).text = session_path
+	(dock.find_child("OpenSession", true, false) as Button).emit_signal("pressed")
 	await process_frame
-	_remove_tree(base_directory)
-	_check(
-		root.get_child_count() == initial_root_child_count,
-		"draft dock lifecycle leaves no additional nodes behind",
-	)
+	_check(dock._draft != null and dock._draft.prompt == prompt.text, "offline reopen restores intent")
+	_check(dock._draft.active_take_summaries().size() == 2, "offline reopen restores summaries")
+	_check(dock._draft.artifacts.size() == 2, "offline reopen restores saved selected-take artifacts")
+	_check(dock._take_set.is_empty(), "offline reopen does not invent transient payloads")
+	_check((dock.find_child("SaveNativeTake", true, false) as Button).disabled, "save requires a live take")
+	_check(FileAccess.get_sha256(JENNY_PATH) == fixture_hash, "offline reopen leaves Jenny unchanged")
+
+	dock.queue_free()
+	client.queue_free()
+	generation.queue_free()
+	await process_frame
+	_cleanup()
+	_check(root.get_child_count() == 0, "session dock lifecycle leaves no nodes")
 	_finish()
 
 
-func _tree_position(root_node: Node, wanted: Node) -> int:
-	var flattened: Array[Node] = []
-	_flatten(root_node, flattened)
-	return flattened.find(wanted)
+func _two_take_response() -> PackedByteArray:
+	var document: Dictionary = JSON.parse_string(FileAccess.get_file_as_string(MOTION_FIXTURE))
+	var animation: Dictionary = document["animations"][0].duplicate(true)
+	animation["name"] = "sample_1"
+	document["animations"].append(animation)
+	var sample: Dictionary = document["extensions"]["MMCP_motion"]["samples"][0].duplicate(true)
+	sample["name"] = "sample_1"
+	document["extensions"]["MMCP_motion"]["samples"].append(sample)
+	return JSON.stringify(document).to_utf8_buffer()
 
 
-func _flatten(node: Node, output: Array[Node]) -> void:
-	output.append(node)
-	for child in node.get_children():
-		_flatten(child, output)
-
-
-func _remove_tree(directory: String) -> void:
-	var absolute := ProjectSettings.globalize_path(directory)
-	_remove_absolute_tree(absolute)
-
-
-func _remove_absolute_tree(directory: String) -> void:
-	var access := DirAccess.open(directory)
-	if access == null:
-		return
-	for child_directory in access.get_directories():
-		_remove_absolute_tree(directory.path_join(child_directory))
-	for file_name in access.get_files():
-		DirAccess.remove_absolute(directory.path_join(file_name))
-	DirAccess.remove_absolute(directory)
+func _cleanup() -> void:
+	for path in _cleanup_paths:
+		if FileAccess.file_exists(path):
+			DirAccess.remove_absolute(ProjectSettings.globalize_path(path))
+	var output_directory := "res://tests/.goal14_selected_take_%d" % OS.get_process_id()
+	if DirAccess.dir_exists_absolute(ProjectSettings.globalize_path(output_directory)):
+		DirAccess.remove_absolute(ProjectSettings.globalize_path(output_directory))
 
 
 func _check(condition: bool, description: String) -> void:
@@ -206,7 +164,7 @@ func _check(condition: bool, description: String) -> void:
 
 func _finish() -> void:
 	if _failures.is_empty():
-		print("PASS: target-first draft provenance, artifact save, and offline dock reload")
+		print("PASS: session-first dock, transient takes, switching, and offline reopen")
 		quit(0)
 	else:
 		for failure in _failures:

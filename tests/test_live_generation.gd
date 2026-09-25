@@ -3,6 +3,9 @@ extends SceneTree
 const CapabilitiesClient := preload("res://addons/kimodo_motion/transport/mmcp_capabilities_client.gd")
 const GenerationClient := preload("res://addons/kimodo_motion/transport/mmcp_generation_client.gd")
 const Dock := preload("res://addons/kimodo_motion/ui/ai_motion_dock.gd")
+const JENNY := preload("res://tests/characters/fixtures/Jenny03.glb")
+
+var _session_path := ""
 
 
 func _init() -> void:
@@ -17,6 +20,7 @@ func _run() -> void:
 	var humanoid_directory := ""
 	var humanoid_name := "goal10_live_humanoid"
 	var diffusion_step_count := 100
+	var take_count := 2
 	var arguments := OS.get_cmdline_user_args()
 	for index in arguments.size():
 		if arguments[index] == "--url" and index + 1 < arguments.size():
@@ -33,6 +37,8 @@ func _run() -> void:
 			humanoid_name = arguments[index + 1]
 		elif arguments[index] == "--steps" and index + 1 < arguments.size():
 			diffusion_step_count = int(arguments[index + 1])
+		elif arguments[index] == "--takes" and index + 1 < arguments.size():
+			take_count = int(arguments[index + 1])
 
 	var capabilities := CapabilitiesClient.new()
 	root.add_child(capabilities)
@@ -43,6 +49,10 @@ func _run() -> void:
 	dock.configure(capabilities, generation)
 	root.add_child(dock)
 	await process_frame
+	(dock.find_child("NewSession", true, false) as Button).emit_signal("pressed")
+	await process_frame
+	_session_path = dock._draft_path
+	dock._on_character_target_changed(JENNY)
 
 	var url_edit: LineEdit = dock.find_child("BackendUrl", true, false)
 	url_edit.text = url
@@ -61,7 +71,10 @@ func _run() -> void:
 	seed.value = 1234
 	var steps: SpinBox = dock.find_child("DiffusionSteps", true, false)
 	steps.value = diffusion_step_count
+	var takes: SpinBox = dock.find_child("TakeCount", true, false)
+	takes.value = take_count
 	var generate_button: Button = dock.find_child("GenerateAction", true, false)
+	var generation_started := Time.get_ticks_msec()
 	generate_button.emit_signal("pressed")
 	await _wait_until_not(generation, GenerationClient.GenerationState.GENERATING, 190.0)
 	if generation.state != GenerationClient.GenerationState.READY:
@@ -72,6 +85,21 @@ func _run() -> void:
 	if not preview.has_motion() or preview.skeleton().get_bone_count() != 77:
 		_fail("live result did not reach the dock preview as SOMA-77")
 		return
+	var take_selector := dock.find_child("TakeSelection", true, false) as OptionButton
+	if dock._take_set.size() != take_count or take_selector.item_count != take_count:
+		_fail("live response did not expose the requested %d takes" % take_count)
+		return
+	if take_count > 1:
+		var first_hash: String = dock._take_set.at(0).content_sha256
+		var second_hash: String = dock._take_set.at(1).content_sha256
+		if first_hash == second_hash:
+			_fail("live multi-take response returned identical decoded motions")
+			return
+		take_selector.select(1)
+		take_selector.emit_signal("item_selected", 1)
+		if dock._take_set.active_index != 1 or not preview.has_motion():
+			_fail("live take switching did not preserve a valid preview")
+			return
 	var retarget_button := dock.find_child("RetargetHumanoid", true, false) as Button
 	if retarget_button.disabled:
 		_fail("humanoid retarget did not enable after live generation")
@@ -119,13 +147,14 @@ func _run() -> void:
 			_fail("live humanoid preview did not save native assets")
 			return
 	print(
-		"PASS: live dock generate/retarget/save — prompt=%s steps=%d bytes=%d source_bones=%d humanoid_bones=%d playing=%s"
-		% [prompt.text, int(steps.value), generation.last_response_bytes.size(), preview.skeleton().get_bone_count(), humanoid.skeleton().get_bone_count(), preview.is_playing()]
+		"PASS: live dock generate/retarget/save — prompt=%s steps=%d takes=%d elapsed=%.2fs bytes=%d source_bones=%d humanoid_bones=%d playing=%s"
+		% [prompt.text, int(steps.value), take_count, float(Time.get_ticks_msec() - generation_started) / 1000.0, generation.last_response_bytes.size(), preview.skeleton().get_bone_count(), humanoid.skeleton().get_bone_count(), preview.is_playing()]
 	)
 	dock.queue_free()
 	capabilities.queue_free()
 	generation.queue_free()
 	await process_frame
+	_cleanup_session()
 	quit(0)
 
 
@@ -137,4 +166,10 @@ func _wait_until_not(client: Node, busy_state: int, timeout: float) -> void:
 
 func _fail(message: String) -> void:
 	printerr("FAIL: ", message)
+	_cleanup_session()
 	quit(1)
+
+
+func _cleanup_session() -> void:
+	if not _session_path.is_empty() and FileAccess.file_exists(_session_path):
+		DirAccess.remove_absolute(ProjectSettings.globalize_path(_session_path))

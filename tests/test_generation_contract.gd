@@ -29,6 +29,12 @@ func _init() -> void:
 	_check(request["options"]["seed"] == 1234, "seed is encoded")
 	_check(request["options"]["diffusion_steps"] == 100, "quality denoising default is encoded")
 	_check(request["options"]["num_samples"] == 1, "initial request asks for one sample")
+	options.num_samples = 2
+	_check(options.validate(capabilities.fps)["ok"], "two takes are within the tested range")
+	_check(options.to_mmcp_request(capabilities)["options"]["num_samples"] == 2, "two takes are encoded")
+	options.num_samples = 3
+	_check(not options.validate(capabilities.fps)["ok"], "untested take counts are rejected")
+	options.num_samples = 1
 
 	options.prompt = "   "
 	_check(not options.validate(capabilities.fps)["ok"], "empty prompts are rejected")

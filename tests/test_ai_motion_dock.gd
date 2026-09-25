@@ -5,6 +5,7 @@ const Client := preload("res://addons/kimodo_motion/transport/mmcp_capabilities_
 const GenerationClient := preload("res://addons/kimodo_motion/transport/mmcp_generation_client.gd")
 const Dock := preload("res://addons/kimodo_motion/ui/ai_motion_dock.gd")
 const FIXTURE := "res://tests/fixtures/soma77_capabilities.json"
+const JENNY := "res://tests/characters/fixtures/Jenny03.glb"
 
 var _failures: Array[String] = []
 
@@ -39,6 +40,16 @@ func _run() -> void:
 		var character_preview_action: Button = dock.find_child("PreviewOnCharacter", true, false)
 		var character_save_action: Button = dock.find_child("SaveCharacterTake", true, false)
 		var preview_selection: OptionButton = dock.find_child("PreviewSelection", true, false)
+		var landing: Control = dock.find_child("SessionLanding", true, false)
+		var new_session: Button = dock.find_child("NewSession", true, false)
+		var workspace := dock.find_child("SessionWorkspace", true, false) as TabContainer
+		_check(landing.visible, "cycle %d starts at the session chooser" % cycle)
+		_check(not generate_action.is_visible_in_tree(), "authoring controls are hidden without a session")
+		new_session.emit_signal("pressed")
+		await process_frame
+		_check(dock._draft != null, "new session becomes active")
+		_check(not landing.visible, "session chooser hides while a session is active")
+		_check(workspace.get_tab_count() == 3, "active workspace has focused Generate, Preview, and Output tabs")
 		_check(status.text.contains("Disconnected"), "cycle %d begins disconnected" % cycle)
 		_check(scroll != null, "dock content is wrapped in a scroll container")
 		_check(
@@ -79,7 +90,10 @@ func _run() -> void:
 		_check(_label_text(dock, "JointsValue") == "SOMA-77 (77 joints)", "joint summary is shown")
 		_check(_label_text(dock, "ConstraintsValue").begins_with("3 —"), "constraints are shown")
 		_check(_label_text(dock, "ContactsValue") == "6 channels", "contacts are shown")
-		_check(not generate_action.disabled, "generation is enabled when Ready")
+		_check(generate_action.disabled, "generation still requires a compatible target")
+		var jenny := ResourceLoader.load(JENNY, "PackedScene", ResourceLoader.CACHE_MODE_REUSE)
+		dock._on_character_target_changed(jenny)
+		_check(not generate_action.disabled, "generation is enabled when session, target, and backend are ready")
 
 		generation._set_state(GenerationClient.GenerationState.GENERATING, "Generating for test…")
 		_check(generate_action.text == "Cancel Generation", "generation can be canceled")
@@ -108,10 +122,13 @@ func _run() -> void:
 		details_button.emit_signal("pressed")
 		_check(details.visible and details.text == "HTTP status 503", "technical details expand")
 
+		var session_path: String = dock._draft_path
 		dock.queue_free()
 		client.queue_free()
 		generation.queue_free()
 		await process_frame
+		if FileAccess.file_exists(session_path):
+			DirAccess.remove_absolute(ProjectSettings.globalize_path(session_path))
 
 	_check(root.get_child_count() == 0, "dock/client lifecycle leaves no nodes behind")
 	_finish()

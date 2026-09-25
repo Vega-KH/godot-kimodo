@@ -56,7 +56,13 @@ Invoke-GodotCheck -Name 'AI Motion dock state and lifecycle' -GodotArguments @(
 Invoke-GodotCheck -Name 'MotionDraft persistence and provenance' -GodotArguments @(
     '--headless', '--path', '.', '--script', 'res://tests/test_motion_draft.gd'
 )
-Invoke-GodotCheck -Name 'Target-first MotionDraft dock lifecycle' -GodotArguments @(
+Invoke-GodotCheck -Name 'KimodoSession persistence and migration' -GodotArguments @(
+    '--headless', '--path', '.', '--script', 'res://tests/test_motion_session.gd'
+)
+Invoke-GodotCheck -Name 'Multiple take response contract' -GodotArguments @(
+    '--headless', '--path', '.', '--script', 'res://tests/test_multiple_takes.gd'
+)
+Invoke-GodotCheck -Name 'Session-first multi-take dock lifecycle' -GodotArguments @(
     '--headless', '--path', '.', '--script', 'res://tests/test_motion_draft_dock.gd'
 )
 Invoke-GodotCheck -Name 'Editor plugin restart' -GodotArguments @(

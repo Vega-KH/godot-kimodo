@@ -5,11 +5,17 @@ extends VBoxContainer
 const Client := preload("res://addons/kimodo_motion/transport/mmcp_capabilities_client.gd")
 const GenerationClient := preload("res://addons/kimodo_motion/transport/mmcp_generation_client.gd")
 const GenerationOptions := preload("res://addons/kimodo_motion/domain/generation_options.gd")
-const MotionDraftStore := preload(
-	"res://addons/kimodo_motion/domain/motion_draft_store.gd"
+const SessionStore := preload("res://addons/kimodo_motion/domain/motion_session_store.gd")
+const SessionController := preload(
+	"res://addons/kimodo_motion/domain/motion_session_controller.gd"
 )
+const TransientTakeSet := preload("res://addons/kimodo_motion/domain/transient_take_set.gd")
 const ProjectPaths := preload("res://addons/kimodo_motion/domain/project_paths.gd")
 const Preview := preload("res://addons/kimodo_motion/ui/soma77_preview.gd")
+const GenerationTakePanel := preload("res://addons/kimodo_motion/ui/generation_take_panel.gd")
+const MotionPreviewPanel := preload("res://addons/kimodo_motion/ui/motion_preview_panel.gd")
+const MotionOutputPanel := preload("res://addons/kimodo_motion/ui/motion_output_panel.gd")
+const SessionShell := preload("res://addons/kimodo_motion/ui/session_shell.gd")
 const NativeAnimationBaker := preload(
 	"res://addons/kimodo_motion/animation/native_animation_baker.gd"
 )
@@ -26,17 +32,25 @@ const HumanoidCharacterBaker := preload(
 var _client: Node
 var _generation_client: Node
 var _editor_plugin: EditorPlugin
+# Kept as aliases during the lossless Goal 13 migration; both now hold a KimodoSession.
 var _draft: Resource
 var _draft_path := ""
 var _restoring_draft := false
-var _draft_directory_edit: LineEdit
-var _draft_name_edit: LineEdit
-var _draft_resource_picker: Control
-var _draft_new_button: Button
-var _draft_save_button: Button
-var _draft_save_as_button: Button
-var _draft_load_button: Button
+var _session_controller: Node
+var _session_landing: Control
+var _session_active_bar: Control
+var _session_title_edit: LineEdit
+var _session_resource_picker: Control
+var _session_recent: OptionButton
+var _session_status: Label
+var _session_active_label: Label
+var _session_save_state: Label
+var _recent_sessions: Array[Dictionary] = []
+var _workspace_start_index := 0
+var _workspace_default_visibility: Dictionary = {}
+var _workspace_tabs: TabContainer
 var _draft_status: Label
+var _session_details_button: Button
 var _draft_details: RichTextLabel
 var _content: VBoxContainer
 var _url_edit: LineEdit
@@ -53,10 +67,13 @@ var _prompt_edit: TextEdit
 var _duration_edit: SpinBox
 var _seed_edit: SpinBox
 var _diffusion_steps_edit: SpinBox
+var _take_count_edit: SpinBox
 var _generate_button: Button
 var _generation_status: Label
 var _generation_details_button: Button
 var _generation_details_text: RichTextLabel
+var _take_selection: OptionButton
+var _take_set: RefCounted
 var _preview: Control
 var _humanoid_preview: Control
 var _character_preview: Control
@@ -107,11 +124,23 @@ func configure(
 func _ready() -> void:
 	name = "AI Motion"
 	custom_minimum_size = Vector2(330.0, 0.0)
+	_session_controller = SessionController.new()
+	_session_controller.name = "SessionController"
+	add_child(_session_controller)
+	_session_controller.save_state_changed.connect(_on_session_save_state_changed)
+	_take_set = TransientTakeSet.new()
 	_build_ui()
-	_on_new_draft_pressed()
+	_bind_session_inputs()
+	_refresh_recent_sessions()
+	_capture_workspace_visibility()
+	_set_workspace_visible(false)
 	_bind_client()
 	_bind_generation_client()
 	set_process(true)
+
+
+func _exit_tree() -> void:
+	_release_and_free_take_motions()
 
 
 func _build_ui() -> void:
@@ -133,9 +162,20 @@ func _build_ui() -> void:
 	_content.add_child(title)
 
 	var subtitle := Label.new()
-	subtitle.text = "Local motion-generation backend"
+	subtitle.text = "Project-owned motion sessions"
 	subtitle.modulate = Color(0.75, 0.78, 0.82)
 	_content.add_child(subtitle)
+	_build_session_landing()
+	_workspace_start_index = _content.get_child_count()
+	var root_content := _content
+	_workspace_tabs = TabContainer.new()
+	_workspace_tabs.name = "SessionWorkspace"
+	_workspace_tabs.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_workspace_tabs.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	root_content.add_child(_workspace_tabs)
+	var generation_panel := GenerationTakePanel.new()
+	_workspace_tabs.add_child(generation_panel)
+	_content = generation_panel
 
 	_content.add_child(HSeparator.new())
 	var url_label := Label.new()
@@ -191,7 +231,7 @@ func _build_ui() -> void:
 	_details_text.visible = false
 	_content.add_child(_details_text)
 
-	_build_draft_section()
+	_build_target_section()
 
 	_content.add_child(HSeparator.new())
 	var generation_title := Label.new()
@@ -246,6 +286,17 @@ func _build_ui() -> void:
 	_seed_edit.custom_minimum_size.x = 105.0
 	_seed_edit.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	options_grid.add_child(_seed_edit)
+	var takes_label := Label.new()
+	takes_label.text = "Takes"
+	options_grid.add_child(takes_label)
+	_take_count_edit = SpinBox.new()
+	_take_count_edit.name = "TakeCount"
+	_take_count_edit.min_value = 1
+	_take_count_edit.max_value = 2
+	_take_count_edit.value = 1
+	_take_count_edit.tooltip_text = "Tested range for this release: one or two takes."
+	_take_count_edit.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	options_grid.add_child(_take_count_edit)
 
 	_generate_button = Button.new()
 	_generate_button.name = "GenerateAction"
@@ -271,6 +322,15 @@ func _build_ui() -> void:
 	_generation_details_text.custom_minimum_size.y = 60.0
 	_generation_details_text.visible = false
 	_content.add_child(_generation_details_text)
+	_take_selection = OptionButton.new()
+	_take_selection.name = "TakeSelection"
+	_take_selection.visible = false
+	_take_selection.item_selected.connect(_on_take_selected)
+	_content.add_child(_take_selection)
+
+	var preview_panel := MotionPreviewPanel.new()
+	_workspace_tabs.add_child(preview_panel)
+	_content = preview_panel
 
 	_preview = Preview.new()
 	_preview.configure("MotionPreview", Color(0.1, 0.85, 1.0))
@@ -342,6 +402,10 @@ func _build_ui() -> void:
 	camera_hint.modulate = Color(0.7, 0.72, 0.76)
 	camera_hint.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	camera_row.add_child(camera_hint)
+
+	var output_panel := MotionOutputPanel.new()
+	_workspace_tabs.add_child(output_panel)
+	_content = output_panel
 
 	_content.add_child(HSeparator.new())
 	var retarget_title := Label.new()
@@ -475,78 +539,37 @@ func _build_ui() -> void:
 	_save_status.text = "Generate a validated motion before saving."
 	_save_status.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	_content.add_child(_save_status)
+	_content = root_content
 
 
-func _build_draft_section() -> void:
+func _build_session_landing() -> void:
+	var shell := SessionShell.new()
+	_content.add_child(shell)
+	shell.new_requested.connect(_on_new_session_pressed)
+	shell.open_requested.connect(_on_open_session_pressed)
+	shell.recent_requested.connect(_on_open_recent_session_pressed)
+	shell.switch_requested.connect(_on_switch_session_pressed)
+	_session_landing = shell.landing
+	_session_active_bar = shell.active_bar
+	_session_title_edit = shell.title_edit
+	_session_resource_picker = shell.resource_picker
+	_session_recent = shell.recent
+	_session_status = shell.status
+	_session_active_label = shell.active_label
+	_session_save_state = shell.save_state
+
+
+func _build_target_section() -> void:
 	_content.add_child(HSeparator.new())
 	var title := Label.new()
-	title.text = "Motion draft and target"
+	title.text = "Character target"
 	title.add_theme_font_size_override("font_size", 15)
 	_content.add_child(title)
 	var explanation := Label.new()
-	explanation.text = "Choose the character first; the draft keeps intent and provenance."
+	explanation.text = "Choose a compatible project-owned character before generating."
 	explanation.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	explanation.modulate = Color(0.75, 0.78, 0.82)
 	_content.add_child(explanation)
-
-	var action_row := HBoxContainer.new()
-	_content.add_child(action_row)
-	_draft_new_button = Button.new()
-	_draft_new_button.name = "NewMotionDraft"
-	_draft_new_button.text = "New"
-	_draft_new_button.pressed.connect(_on_new_draft_pressed)
-	action_row.add_child(_draft_new_button)
-	_draft_save_button = Button.new()
-	_draft_save_button.name = "SaveMotionDraft"
-	_draft_save_button.text = "Save"
-	_draft_save_button.pressed.connect(_on_save_draft_pressed)
-	action_row.add_child(_draft_save_button)
-	_draft_save_as_button = Button.new()
-	_draft_save_as_button.name = "SaveAsMotionDraft"
-	_draft_save_as_button.text = "Save As"
-	_draft_save_as_button.pressed.connect(_on_save_as_draft_pressed)
-	action_row.add_child(_draft_save_as_button)
-
-	var load_row := HBoxContainer.new()
-	_content.add_child(load_row)
-	if Engine.is_editor_hint():
-		var editor_draft_picker := EditorResourcePicker.new()
-		editor_draft_picker.base_type = "KimodoMotionDraft"
-		_draft_resource_picker = editor_draft_picker
-	else:
-		var draft_path_edit := LineEdit.new()
-		draft_path_edit.placeholder_text = "res://animations/kimodo/drafts/example.tres"
-		_draft_resource_picker = draft_path_edit
-	_draft_resource_picker.name = "MotionDraftResource"
-	_draft_resource_picker.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	load_row.add_child(_draft_resource_picker)
-	_draft_load_button = Button.new()
-	_draft_load_button.name = "LoadMotionDraft"
-	_draft_load_button.text = "Load"
-	_draft_load_button.pressed.connect(_on_load_draft_pressed)
-	load_row.add_child(_draft_load_button)
-
-	var save_grid := GridContainer.new()
-	save_grid.columns = 2
-	save_grid.add_theme_constant_override("h_separation", 12)
-	save_grid.add_theme_constant_override("v_separation", 5)
-	_content.add_child(save_grid)
-	var directory_label := Label.new()
-	directory_label.text = "Draft directory"
-	save_grid.add_child(directory_label)
-	_draft_directory_edit = LineEdit.new()
-	_draft_directory_edit.name = "MotionDraftDirectory"
-	_draft_directory_edit.text = "res://animations/kimodo/drafts"
-	_draft_directory_edit.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	save_grid.add_child(_draft_directory_edit)
-	var name_label := Label.new()
-	name_label.text = "Draft name"
-	save_grid.add_child(name_label)
-	_draft_name_edit = LineEdit.new()
-	_draft_name_edit.name = "MotionDraftName"
-	_draft_name_edit.text = "kimodo_motion_draft"
-	_draft_name_edit.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	save_grid.add_child(_draft_name_edit)
 
 	var target_label := Label.new()
 	target_label.text = "Character scene"
@@ -579,14 +602,20 @@ func _build_draft_section() -> void:
 	_content.add_child(_character_status)
 
 	_draft_status = Label.new()
-	_draft_status.name = "MotionDraftStatus"
+	_draft_status.name = "SessionStatus"
 	_draft_status.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	_content.add_child(_draft_status)
+	_session_details_button = Button.new()
+	_session_details_button.name = "SessionDetailsToggle"
+	_session_details_button.text = "Show session details"
+	_session_details_button.pressed.connect(_toggle_session_details)
+	_content.add_child(_session_details_button)
 	_draft_details = RichTextLabel.new()
-	_draft_details.name = "MotionDraftDetails"
+	_draft_details.name = "SessionDetails"
 	_draft_details.bbcode_enabled = true
 	_draft_details.fit_content = true
 	_draft_details.custom_minimum_size.y = 72.0
+	_draft_details.visible = false
 	_draft_details.meta_clicked.connect(_on_draft_meta_clicked)
 	_content.add_child(_draft_details)
 
@@ -605,37 +634,176 @@ func _add_summary_row(grid: GridContainer, label_text: String, value: String, no
 	return value_label
 
 
-func _on_new_draft_pressed() -> void:
-	if _generation_client != null and _generation_client.state == GenerationClient.GenerationState.GENERATING:
-		_set_draft_error("Cancel the active generation before creating a new draft.")
+func _set_workspace_visible(visible: bool) -> void:
+	if _content == null:
 		return
-	_draft = MotionDraftStore.create_draft()
-	_draft_path = ""
-	_prompt_edit.text = _draft.prompt
-	_duration_edit.value = _draft.duration_frames
-	_seed_edit.value = _draft.seed
-	_diffusion_steps_edit.value = _draft.diffusion_steps
-	if _draft_resource_picker is EditorResourcePicker:
-		(_draft_resource_picker as EditorResourcePicker).edited_resource = null
-	elif _draft_resource_picker is LineEdit:
-		(_draft_resource_picker as LineEdit).text = ""
-	if _character_target_picker is EditorResourcePicker:
-		(_character_target_picker as EditorResourcePicker).edited_resource = null
-	_on_character_target_changed(null)
+	for index in range(_workspace_start_index, _content.get_child_count()):
+		var item := _content.get_child(index) as CanvasItem
+		item.visible = visible and bool(_workspace_default_visibility.get(item.get_instance_id(), true))
+	_session_landing.visible = not visible
+	_session_active_bar.visible = visible
+
+
+func _capture_workspace_visibility() -> void:
+	_workspace_default_visibility.clear()
+	for index in range(_workspace_start_index, _content.get_child_count()):
+		var item := _content.get_child(index) as CanvasItem
+		_workspace_default_visibility[item.get_instance_id()] = item.visible
+
+
+func _refresh_recent_sessions() -> void:
+	_recent_sessions = SessionStore.list_sessions()
+	_session_recent.clear()
+	if _recent_sessions.is_empty():
+		_session_recent.add_item("No recent sessions")
+		_session_recent.disabled = true
+		return
+	_session_recent.disabled = false
+	for entry in _recent_sessions:
+		_session_recent.add_item("%s — %s" % [entry["title"], entry["updated_at_utc"]])
+
+
+func _on_new_session_pressed() -> void:
+	var result: Dictionary = _session_controller.create(_session_title_edit.text)
+	if not result["ok"]:
+		_set_session_landing_error(result["message"])
+		return
+	_activate_session(result["session"], result["path"], {})
+
+
+func _on_open_session_pressed() -> void:
+	var path := ""
+	if _session_resource_picker is EditorResourcePicker:
+		var selected := (_session_resource_picker as EditorResourcePicker).edited_resource
+		if selected != null:
+			path = selected.resource_path
+	elif _session_resource_picker is LineEdit:
+		path = (_session_resource_picker as LineEdit).text.strip_edges()
+	if path.is_empty():
+		_set_session_landing_error("Choose a KimodoSession or Goal 13 MotionDraft resource.")
+		return
+	_open_session_path(path)
+
+
+func _on_open_recent_session_pressed() -> void:
+	var index := _session_recent.selected
+	if index < 0 or index >= _recent_sessions.size():
+		_set_session_landing_error("There is no recent session to open.")
+		return
+	_open_session_path(_recent_sessions[index]["path"])
+
+
+func _open_session_path(path: String) -> void:
+	var result: Dictionary = _session_controller.open(path)
+	if not result["ok"]:
+		_set_session_landing_error(result["message"])
+		return
+	_activate_session(result["session"], result["path"], result)
+
+
+func _activate_session(session: Resource, path: String, load_result: Dictionary) -> void:
+	_draft = session
+	_draft_path = path
 	_clear_generated_previews()
-	_draft_status.modulate = Color(0.75, 0.78, 0.82)
-	_draft_status.text = "New unsaved draft %s" % _draft.draft_id
+	_prompt_edit.text = session.prompt
+	_duration_edit.value = session.duration_frames
+	_seed_edit.value = session.seed
+	_diffusion_steps_edit.value = session.diffusion_steps
+	_take_count_edit.value = session.requested_take_count
+	_restoring_draft = true
+	var target_resource: Resource = null
+	if not session.target_scene_path.is_empty() and ResourceLoader.exists(session.target_scene_path):
+		target_resource = ResourceLoader.load(
+			session.target_scene_path, "PackedScene", ResourceLoader.CACHE_MODE_REUSE
+		)
+	if _character_target_picker is EditorResourcePicker:
+		(_character_target_picker as EditorResourcePicker).edited_resource = target_resource
+	_on_character_target_changed(target_resource)
+	_restoring_draft = false
+	_session_active_label.text = session.title
+	_draft_status.modulate = Color(0.25, 0.85, 0.45)
+	_draft_status.text = "Session ready. Unsaved take previews are intentionally transient."
+	if not String(load_result.get("migrated_from", "")).is_empty():
+		_draft_status.text = "Migrated Goal 13 draft to %s; the original was left unchanged." % path
+	_set_workspace_visible(true)
 	_update_draft_details()
+	_update_generation_availability()
+	_refresh_recent_sessions()
+
+
+func _on_switch_session_pressed() -> void:
+	if not _flush_session():
+		return
+	var result: Dictionary = _session_controller.close()
+	if not result["ok"]:
+		_set_draft_error(result["message"])
+		return
+	_draft = null
+	_draft_path = ""
+	_clear_generated_previews()
+	_set_workspace_visible(false)
+	_refresh_recent_sessions()
+
+
+func _set_session_landing_error(message: String) -> void:
+	_session_status.modulate = Color(1.0, 0.35, 0.3)
+	_session_status.text = message
+
+
+func _on_session_save_state_changed(state: String, message: String) -> void:
+	if _session_save_state == null:
+		return
+	_session_save_state.text = message
+	_session_save_state.modulate = (
+		Color(1.0, 0.35, 0.3) if state == "error" else
+		Color(0.95, 0.72, 0.2) if state == "saving" else Color(0.25, 0.85, 0.45)
+	)
+
+
+func _bind_session_inputs() -> void:
+	_prompt_edit.text_changed.connect(_on_session_input_changed)
+	_duration_edit.value_changed.connect(_on_session_value_changed)
+	_seed_edit.value_changed.connect(_on_session_value_changed)
+	_diffusion_steps_edit.value_changed.connect(_on_session_value_changed)
+	_take_count_edit.value_changed.connect(_on_session_value_changed)
+
+
+func _on_session_input_changed() -> void:
+	_mark_session_dirty()
+
+
+func _on_session_value_changed(_value: float) -> void:
+	_mark_session_dirty()
+
+
+func _mark_session_dirty() -> void:
+	if _restoring_draft or _draft == null:
+		return
+	_sync_draft_from_ui()
+	_session_controller.mark_dirty()
+
+
+func _flush_session() -> bool:
+	if _draft == null:
+		return false
+	_sync_draft_from_ui()
+	_session_controller.mark_dirty()
+	var result: Dictionary = _session_controller.flush()
+	if not result["ok"]:
+		_set_draft_error(result["message"])
+		return false
+	return true
 
 
 func _clear_generated_previews() -> void:
+	_release_and_free_take_motions()
 	if _preview != null:
 		_preview.clear_motion()
 		_preview.visible = false
 	_clear_humanoid_preview()
 	if _generation_status != null:
 		_generation_status.modulate = Color(0.7, 0.72, 0.76)
-		_generation_status.text = "No motion generated for this draft."
+		_generation_status.text = "No transient takes are loaded for this session."
 	if _save_status != null:
 		_save_status.modulate = Color(0.7, 0.72, 0.76)
 		_save_status.text = "Generate a validated motion before saving."
@@ -646,105 +814,55 @@ func _clear_generated_previews() -> void:
 	_update_generation_availability()
 
 
+func _release_and_free_take_motions() -> void:
+	_take_set.clear(_preview)
+	if _take_selection != null:
+		_take_selection.clear()
+		_take_selection.visible = false
+
+
+func _on_take_selected(index: int) -> void:
+	if index < 0 or index >= _take_set.size() or index == _take_set.active_index:
+		return
+	var position: float = _preview.current_position()
+	var playing: bool = _preview.is_playing()
+	_clear_humanoid_preview()
+	if not _take_set.activate(index, _preview):
+		_set_draft_error("The selected transient take is no longer available.")
+		return
+	_preview.visible = true
+	_preview.set_looping(_loop_toggle.button_pressed)
+	_preview.seek(position)
+	_preview.set_playing(playing)
+	_play_button.text = "Pause" if playing else "Play"
+	if not _preview_current_take_on_character():
+		_set_draft_error("The selected take could not be previewed on the session character.")
+		return
+	if _draft != null:
+		var takes: Array = _draft.active_take_summaries()
+		if index < takes.size():
+			_draft.selected_take_id = takes[index].get("take_id", "")
+			_session_controller.mark_dirty()
+	_update_save_availability()
+	_update_retarget_availability()
+
+
 func _ensure_draft() -> Resource:
-	if _draft == null:
-		_draft = MotionDraftStore.create_draft()
 	return _draft
 
 
 func _sync_draft_from_ui() -> void:
 	var draft := _ensure_draft()
-	MotionDraftStore.sync_editable_intent(
+	if draft == null:
+		return
+	SessionStore.sync_editable_intent(
 		draft,
 		_prompt_edit.text,
 		int(_duration_edit.value),
 		int(_seed_edit.value),
 		int(_diffusion_steps_edit.value),
+		int(_take_count_edit.value),
 	)
-
-
-func _on_save_draft_pressed() -> void:
-	_sync_draft_from_ui()
-	if _draft_path.is_empty():
-		_on_save_as_draft_pressed()
-		return
-	var result := MotionDraftStore.save(_draft, _draft_path)
-	_apply_draft_save_result(result)
-
-
-func _on_save_as_draft_pressed() -> void:
-	_sync_draft_from_ui()
-	var result := MotionDraftStore.save_as(
-		_draft,
-		_draft_directory_edit.text.strip_edges(),
-		_draft_name_edit.text.strip_edges(),
-	)
-	_apply_draft_save_result(result)
-
-
-func _apply_draft_save_result(result: Dictionary) -> void:
-	if not result["ok"]:
-		_set_draft_error(result["message"])
-		return
-	_draft_path = result["path"]
-	if _draft_resource_picker is EditorResourcePicker:
-		(_draft_resource_picker as EditorResourcePicker).edited_resource = _draft
-	elif _draft_resource_picker is LineEdit:
-		(_draft_resource_picker as LineEdit).text = _draft_path
-	_draft_status.modulate = Color(0.25, 0.85, 0.45)
-	_draft_status.text = "Saved draft %s" % _draft_path
-	_update_draft_details()
-	_refresh_saved_resource(_draft_path)
-
-
-func _on_load_draft_pressed() -> void:
-	if _generation_client != null and _generation_client.state == GenerationClient.GenerationState.GENERATING:
-		_set_draft_error("Cancel the active generation before loading a draft.")
-		return
-	var path := ""
-	if _draft_resource_picker is EditorResourcePicker:
-		var selected := (_draft_resource_picker as EditorResourcePicker).edited_resource
-		if selected != null:
-			path = selected.resource_path
-	elif _draft_resource_picker is LineEdit:
-		path = (_draft_resource_picker as LineEdit).text.strip_edges()
-	if path.is_empty():
-		_set_draft_error("Choose a MotionDraft resource to load.")
-		return
-	var result := MotionDraftStore.load_draft(path)
-	if not result["ok"]:
-		_set_draft_error(result["message"])
-		return
-	_draft = result["draft"]
-	_draft_path = result["path"]
-	_clear_generated_previews()
-	_apply_loaded_draft(result)
-
-
-func _apply_loaded_draft(load_result: Dictionary) -> void:
-	_prompt_edit.text = _draft.prompt
-	_duration_edit.value = _draft.duration_frames
-	_seed_edit.value = _draft.seed
-	_diffusion_steps_edit.value = _draft.diffusion_steps
-	_restoring_draft = true
-	var target_resource: Resource = null
-	if not _draft.target_scene_path.is_empty() and ResourceLoader.exists(_draft.target_scene_path):
-		target_resource = ResourceLoader.load(
-			_draft.target_scene_path, "PackedScene", ResourceLoader.CACHE_MODE_REUSE
-		)
-	if _character_target_picker is EditorResourcePicker:
-		(_character_target_picker as EditorResourcePicker).edited_resource = target_resource
-	_on_character_target_changed(target_resource)
-	_restoring_draft = false
-	var available: Array = load_result["available_artifacts"]
-	var missing: Array = load_result["missing_artifacts"]
-	_draft_status.modulate = Color(0.95, 0.72, 0.2) if not missing.is_empty() else Color(0.25, 0.85, 0.45)
-	_draft_status.text = "Loaded draft %s — %d artifacts available, %d missing." % [
-		_draft_path, available.size(), missing.size(),
-	]
-	if target_resource == null and not _draft.target_scene_path.is_empty():
-		_draft_status.text += " Target is missing: %s" % _draft.target_scene_path
-	_update_draft_details()
 
 
 func _update_draft_details() -> void:
@@ -752,9 +870,9 @@ func _update_draft_details() -> void:
 		return
 	_draft_details.clear()
 	if _draft == null:
-		_draft_details.append_text("No draft is open.")
+		_draft_details.append_text("No session is open.")
 		return
-	_draft_details.append_text("Draft ID: %s\n" % _draft.draft_id)
+	_draft_details.append_text("Session ID: %s\n" % _draft.session_id)
 	_draft_details.append_text("Target: ")
 	_append_draft_path(_draft.target_scene_path)
 	_draft_details.append_text("\n")
@@ -774,6 +892,8 @@ func _update_draft_details() -> void:
 			String(record.get("request_sha256", "")).left(12),
 			String(record.get("response_sha256", "")).left(12),
 		])
+		var takes: Array = record.get("takes", [])
+		_draft_details.append_text("Take summaries: %d (payloads are transient)\n" % takes.size())
 	var artifact_types: Array[String] = []
 	for artifact_type in _draft.artifacts:
 		artifact_types.append(String(artifact_type))
@@ -791,6 +911,13 @@ func _update_draft_details() -> void:
 			_draft_details.append_text("\n")
 
 
+func _toggle_session_details() -> void:
+	_draft_details.visible = not _draft_details.visible
+	_session_details_button.text = (
+		"Hide session details" if _draft_details.visible else "Show session details"
+	)
+
+
 func _append_draft_path(path: String) -> void:
 	if path.is_empty():
 		_draft_details.append_text("none")
@@ -804,7 +931,7 @@ func _on_draft_meta_clicked(meta: Variant) -> void:
 	var path := String(meta)
 	var validation := ProjectPaths.validate_file(path)
 	if not validation["ok"] or not FileAccess.file_exists(validation["path"]):
-		_set_draft_error("The selected draft artifact is unavailable: %s" % path)
+		_set_draft_error("The selected session artifact is unavailable: %s" % path)
 		return
 	_refresh_saved_resource(validation["path"])
 
@@ -890,6 +1017,8 @@ func _apply_state(state: int, state_name: String, snapshot: Dictionary) -> void:
 			model.constraint_types.size(), ", ".join(model.constraint_types),
 		]
 		_contacts_label.text = "%d channels" % model.contact_joints.size()
+		_take_count_edit.max_value = mini(2, model.max_num_samples)
+		_take_count_edit.value = mini(int(_take_count_edit.value), int(_take_count_edit.max_value))
 
 	var details: String = snapshot["technical_details"]
 	_details_text.text = details
@@ -913,12 +1042,17 @@ func _on_generate_pressed() -> void:
 	if _generation_client.state == GenerationClient.GenerationState.GENERATING:
 		_generation_client.cancel_generation()
 		return
-	_sync_draft_from_ui()
+	if _draft == null or _character_target == null:
+		_set_draft_error("Open a session and choose a compatible character before generating.")
+		return
+	if not _flush_session():
+		return
 	var options := GenerationOptions.new()
 	options.prompt = _prompt_edit.text
 	options.duration_frames = int(_duration_edit.value)
 	options.seed = int(_seed_edit.value)
 	options.diffusion_steps = int(_diffusion_steps_edit.value)
+	options.num_samples = int(_take_count_edit.value)
 	_generation_client.generate(_client.backend_url, _client.capabilities, options)
 
 
@@ -955,7 +1089,8 @@ func _update_generation_availability() -> void:
 		and _generation_client.state == GenerationClient.GenerationState.GENERATING
 	)
 	var connected: bool = _client != null and _client.state == Client.ConnectionState.READY
-	_generate_button.disabled = not connected and not generating
+	var ready_to_generate := connected and _draft != null and _character_target != null
+	_generate_button.disabled = not ready_to_generate and not generating
 	_generate_button.text = "Cancel Generation" if generating else (
 		"Generate Again" if _preview != null and _preview.has_motion() else "Generate"
 	)
@@ -963,32 +1098,52 @@ func _update_generation_availability() -> void:
 	_duration_edit.editable = not generating
 	_seed_edit.editable = not generating
 	_diffusion_steps_edit.editable = not generating
+	_take_count_edit.editable = not generating
 	_action_button.disabled = generating
-	_draft_new_button.disabled = generating
-	_draft_save_button.disabled = generating
-	_draft_save_as_button.disabled = generating
-	_draft_load_button.disabled = generating
 	_update_save_availability()
 	_update_retarget_availability()
 
 
 func _on_motion_ready() -> void:
-	var motion: RefCounted = _generation_client.take_latest_motion()
-	if not _accept_source_motion(motion):
+	_release_and_free_take_motions()
+	var received_motions: Array[RefCounted] = _generation_client.take_latest_motions()
+	_take_set.replace(received_motions, _preview)
+	if _take_set.is_empty():
+		_set_draft_error("The validated response did not contain any takes.")
 		return
 	_sync_draft_from_ui()
-	var provenance_result := MotionDraftStore.append_generation_record(
+	var provenance_result := SessionStore.append_generation_record(
 		_draft,
 		_generation_client.last_request_json,
 		_client.last_response_json,
 		_generation_client.last_response_bytes,
 		_client.capabilities,
+		_take_set.motions,
 	)
 	if not provenance_result["ok"]:
 		_set_draft_error(provenance_result["message"])
+		_release_and_free_take_motions()
 	else:
+		_take_selection.clear()
+		for index in _take_set.size():
+			_take_selection.add_item("Take %d — %s" % [index + 1, _take_set.at(index).animation_name])
+		_take_selection.visible = _take_set.size() > 1
+		if not _take_set.activate(0, _preview):
+			_release_and_free_take_motions()
+			return
+		if not _accept_source_motion_already_owned():
+			_release_and_free_take_motions()
+			return
+		if not _preview_current_take_on_character():
+			_set_draft_error("The generated take could not be previewed on the selected character.")
+			return
+		_take_selection.select(0)
 		_draft_status.modulate = Color(0.25, 0.85, 0.45)
-		_draft_status.text = "Validated generation provenance recorded in the open draft."
+		_draft_status.text = "%d transient take%s ready; provenance autosaved." % [
+			_take_set.size(), "" if _take_set.size() == 1 else "s",
+		]
+		_session_controller.mark_dirty()
+		_flush_session()
 		_update_draft_details()
 
 
@@ -997,6 +1152,13 @@ func _accept_source_motion(motion: RefCounted) -> bool:
 	if not _preview.set_motion(motion):
 		_update_retarget_availability()
 		_update_save_availability()
+		return false
+	return _accept_source_motion_already_owned()
+
+
+func _accept_source_motion_already_owned() -> bool:
+	_clear_humanoid_preview()
+	if not _preview.has_motion():
 		return false
 	_preview.visible = true
 	var controls := _play_button.get_parent() as Control
@@ -1010,6 +1172,16 @@ func _accept_source_motion(motion: RefCounted) -> bool:
 	_update_save_availability()
 	_update_retarget_availability()
 	return true
+
+
+func _preview_current_take_on_character() -> bool:
+	if _character_target == null or _preview == null or not _preview.has_motion():
+		return false
+	_on_retarget_humanoid_pressed()
+	if _humanoid_preview == null or not _humanoid_preview.has_motion():
+		return false
+	_on_preview_character_pressed()
+	return _character_preview != null and _character_preview.has_motion()
 
 
 func _on_play_pause_pressed() -> void:
@@ -1198,6 +1370,8 @@ func _set_humanoid_save_error(message: String) -> void:
 
 
 func _on_character_target_changed(resource: Resource) -> void:
+	if not _restoring_draft and _draft != null and not _flush_session():
+		return
 	_clear_character_preview()
 	_character_target = null
 	_character_clear_button.disabled = resource == null
@@ -1205,9 +1379,12 @@ func _on_character_target_changed(resource: Resource) -> void:
 		_character_status.modulate = Color(0.7, 0.72, 0.76)
 		_character_status.text = "Select a project-owned compatible PackedScene target."
 		if not _restoring_draft and _draft != null:
-			MotionDraftStore.set_target(_draft, "", null)
+			SessionStore.set_target(_draft, "", null)
+			_session_controller.mark_dirty()
+			_session_controller.flush()
 			_update_draft_details()
 		_update_character_availability()
+		_update_generation_availability()
 		return
 	if not resource is PackedScene:
 		_set_character_error("Character target must be a PackedScene resource.")
@@ -1224,17 +1401,21 @@ func _on_character_target_changed(resource: Resource) -> void:
 		return
 	var skeleton := _find_first_node(instance, "Skeleton3D") as Skeleton3D
 	var scene_path := (resource as PackedScene).resource_path
-	var signature := MotionDraftStore.skeleton_signature(skeleton)
+	var signature := SessionStore.skeleton_signature(skeleton)
 	if _restoring_draft:
 		if (
 			not _draft.target_skeleton_signature.is_empty()
 			and _draft.target_skeleton_signature != signature
 		):
 			instance.free()
-			_set_character_error("The draft target skeleton has changed since it was recorded.")
+			_set_character_error("The session target skeleton has changed since it was recorded.")
 			return
 	else:
-		var target_result := MotionDraftStore.set_target(_ensure_draft(), scene_path, skeleton)
+		if _draft == null:
+			instance.free()
+			_set_character_error("Open a session before selecting a character.")
+			return
+		var target_result := SessionStore.set_target(_draft, scene_path, skeleton)
 		if not target_result["ok"]:
 			instance.free()
 			_set_character_error(target_result["message"])
@@ -1250,8 +1431,12 @@ func _on_character_target_changed(resource: Resource) -> void:
 	_character_status.text = "Compatible target: %d bones, %d skinned meshes." % [
 		bone_count, skinned_meshes,
 	]
+	if not _restoring_draft:
+		_session_controller.mark_dirty()
+		_session_controller.flush()
 	_update_draft_details()
 	_update_character_availability()
+	_update_generation_availability()
 
 
 func _on_clear_character_target_pressed() -> void:
@@ -1405,11 +1590,16 @@ func _on_save_native_take_pressed() -> void:
 
 
 func _record_draft_artifact(artifact_type: String, path: String) -> void:
+	if _draft == null:
+		return
 	_sync_draft_from_ui()
-	var result := MotionDraftStore.record_artifact(_draft, artifact_type, path)
+	var take_id: String = _draft.selected_take_id if _draft != null else ""
+	var result := SessionStore.record_artifact(_draft, artifact_type, path, take_id)
 	if not result["ok"]:
 		_set_draft_error(result["message"])
 		return
+	_session_controller.mark_dirty()
+	_session_controller.flush()
 	_update_draft_details()
 
 

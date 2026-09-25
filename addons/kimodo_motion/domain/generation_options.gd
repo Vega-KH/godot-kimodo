@@ -5,6 +5,7 @@ var prompt := "A person walks forward."
 var duration_frames := 30
 var seed := 1234
 var diffusion_steps := 100
+var num_samples := 1
 
 
 func validate(fps: float) -> Dictionary:
@@ -17,6 +18,8 @@ func validate(fps: float) -> Dictionary:
 		return _error("Duration must be between 1 frame and 30 seconds.")
 	if diffusion_steps < 1 or diffusion_steps > 200:
 		return _error("Diffusion steps must be between 1 and 200.")
+	if num_samples < 1 or num_samples > 2:
+		return _error("Take count must be 1 or 2 for the currently tested workflow.")
 	return {"ok": true}
 
 
@@ -34,7 +37,7 @@ func to_mmcp_request(capabilities: RefCounted) -> Dictionary:
 		"timing": {"fps": capabilities.fps},
 		"options": {
 			"diffusion_steps": diffusion_steps,
-			"num_samples": 1,
+			"num_samples": num_samples,
 			"seed": seed,
 			"post_processing": false,
 			"transition_frames": 5,

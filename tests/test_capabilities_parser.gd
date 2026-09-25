@@ -25,6 +25,7 @@ func _init() -> void:
 		_check(model.constraint_types.size() == 3, "constraint types are typed")
 		_check(model.contact_joints.size() == 6, "contact channels are typed")
 		_check(model.response_formats == ["gltf_2.0_json"], "response format is typed")
+		_check(model.max_num_samples == 16, "sample limit is typed")
 
 	_check(
 		Capabilities.parse_json_text("{definitely broken")["code"] == "malformed_json",

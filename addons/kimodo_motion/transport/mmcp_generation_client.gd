@@ -24,7 +24,7 @@ var last_response_bytes := PackedByteArray()
 var _attempt := 0
 var _active_request: HTTPRequest
 var _active_request_id := 0
-var _latest_motion: RefCounted
+var _latest_motions: Array[RefCounted] = []
 
 
 func generate(
@@ -91,9 +91,17 @@ func cancel_generation() -> void:
 
 
 func take_latest_motion() -> RefCounted:
-	var motion := _latest_motion
-	_latest_motion = null
+	if _latest_motions.is_empty():
+		return null
+	var motion := _latest_motions.pop_front()
+	_free_latest_motions()
 	return motion
+
+
+func take_latest_motions() -> Array[RefCounted]:
+	var motions := _latest_motions
+	_latest_motions = []
+	return motions
 
 
 func reset() -> void:
@@ -181,10 +189,13 @@ func _on_request_completed(
 		)
 		return
 	last_response_bytes = body.duplicate()
-	_latest_motion = parsed["motion"]
+	_latest_motions.assign(parsed["motions"])
 	_set_state(
 		GenerationState.READY,
-		"Generated %.2f seconds of SOMA-77 motion." % _latest_motion.duration_seconds,
+		"Generated %d take%s (%.2f seconds each)." % [
+			_latest_motions.size(), "" if _latest_motions.size() == 1 else "s",
+			_latest_motions[0].duration_seconds,
+		],
 	)
 	motion_ready.emit()
 
@@ -199,11 +210,14 @@ func _cancel_active_request() -> void:
 
 
 func _free_latest_motion() -> void:
-	if _latest_motion == null:
-		return
-	if is_instance_valid(_latest_motion.scene):
-		_latest_motion.scene.free()
-	_latest_motion = null
+	_free_latest_motions()
+
+
+func _free_latest_motions() -> void:
+	for motion in _latest_motions:
+		if motion != null and is_instance_valid(motion.scene):
+			motion.scene.free()
+	_latest_motions.clear()
 
 
 func _set_state(next_state: int, next_message: String, details: String = "") -> void:
@@ -221,7 +235,8 @@ func snapshot() -> Dictionary:
 	return {
 		"message": message,
 		"technical_details": technical_details,
-		"has_motion": _latest_motion != null,
+		"has_motion": not _latest_motions.is_empty(),
+		"take_count": _latest_motions.size(),
 	}
 
 
