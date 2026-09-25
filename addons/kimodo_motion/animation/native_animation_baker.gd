@@ -1,6 +1,7 @@
 class_name NativeAnimationBaker
 extends RefCounted
 
+const ProjectPaths := preload("res://addons/kimodo_motion/domain/project_paths.gd")
 const SKELETON_NODE_NAME := "Soma77Skeleton"
 const PLAYER_NODE_NAME := "AnimationPlayer"
 const ANIMATION_NAME := "motion"
@@ -21,10 +22,11 @@ static func bake(
 		push_error("Expected exactly one source animation, found %d" % source_names.size())
 		return {}
 
-	var absolute_directory := ProjectSettings.globalize_path(output_directory)
-	if DirAccess.make_dir_recursive_absolute(absolute_directory) != OK:
-		push_error("Cannot create native animation output directory: %s" % output_directory)
+	var directory_result := ProjectPaths.ensure_directory(output_directory)
+	if not directory_result["ok"]:
+		push_error(directory_result["message"])
 		return {}
+	output_directory = directory_result["path"]
 	var stem := _unique_stem(output_directory, requested_stem)
 	# Binary .res keeps generated animation keys compact and avoids text-format
 	# precision becoming part of the accepted-animation contract.
@@ -57,6 +59,7 @@ static func bake(
 		return {}
 	if ResourceSaver.save(library, library_path) != OK:
 		push_error("Cannot save native AnimationLibrary: %s" % library_path)
+		_remove_partial_outputs([library_path, scene_path])
 		native_root.free()
 		return {}
 
@@ -67,6 +70,7 @@ static func bake(
 	player.name = PLAYER_NODE_NAME
 	if player.add_animation_library("", saved_library) != OK:
 		push_error("Cannot attach the saved AnimationLibrary to its playback scene")
+		_remove_partial_outputs([library_path, scene_path])
 		native_root.free()
 		return {}
 	native_root.add_child(player)
@@ -75,6 +79,7 @@ static func bake(
 	var packed := PackedScene.new()
 	if packed.pack(native_root) != OK or ResourceSaver.save(packed, scene_path) != OK:
 		push_error("Cannot save native skeleton scene: %s" % scene_path)
+		_remove_partial_outputs([library_path, scene_path])
 		native_root.free()
 		return {}
 	native_root.free()
@@ -113,6 +118,12 @@ static func _unique_stem(directory: String, requested: String) -> String:
 		candidate = "%s_%d" % [clean, suffix]
 		suffix += 1
 	return candidate
+
+
+static func _remove_partial_outputs(paths: Array[String]) -> void:
+	for path in paths:
+		if FileAccess.file_exists(path):
+			DirAccess.remove_absolute(ProjectSettings.globalize_path(path))
 
 
 static func _find_first(node: Node, type_name: StringName) -> Node:

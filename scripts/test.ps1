@@ -15,9 +15,17 @@ function Invoke-GodotCheck {
     )
 
     Write-Host "==> $Name"
-    $output = & $GodotPath @GodotArguments 2>&1
+    $rawOutput = & $GodotPath @GodotArguments 2>&1
     $exitCode = $LASTEXITCODE
+    $knownCertificateDiagnostic = $rawOutput -match 'Failed to read the root certificate store'
+    $output = $rawOutput | Where-Object {
+        $_ -notmatch 'Failed to read the root certificate store' -and
+        $_ -notmatch 'get_system_ca_certificates'
+    }
     $output | Write-Host
+    if ($knownCertificateDiagnostic) {
+        Write-Host 'NOTE: ignored the known sandboxed-Windows root certificate-store diagnostic.'
+    }
     $text = $output -join "`n"
     if ($exitCode -ne 0) {
         throw "$Name exited with code $exitCode"
@@ -44,6 +52,12 @@ Invoke-GodotCheck -Name 'Asynchronous generation and preview' -GodotArguments @(
 )
 Invoke-GodotCheck -Name 'AI Motion dock state and lifecycle' -GodotArguments @(
     '--headless', '--path', '.', '--script', 'res://tests/test_ai_motion_dock.gd'
+)
+Invoke-GodotCheck -Name 'MotionDraft persistence and provenance' -GodotArguments @(
+    '--headless', '--path', '.', '--script', 'res://tests/test_motion_draft.gd'
+)
+Invoke-GodotCheck -Name 'Target-first MotionDraft dock lifecycle' -GodotArguments @(
+    '--headless', '--path', '.', '--script', 'res://tests/test_motion_draft_dock.gd'
 )
 Invoke-GodotCheck -Name 'Editor plugin restart' -GodotArguments @(
     '--headless', '--editor', '--path', '.', '--quit'

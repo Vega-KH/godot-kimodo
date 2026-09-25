@@ -27,6 +27,7 @@ func _run() -> void:
 	print("transport test: valid response state=", client.state)
 	_check(client.state == Client.ConnectionState.READY, "valid HTTP response reaches Ready")
 	_check(client.capabilities.model_id == "kimodo-soma-rp", "HTTP result is typed")
+	_check(client.last_response_json == fixture, "exact capability response is retained for provenance")
 	var stale_request := HTTPRequest.new()
 	root.add_child(stale_request)
 	client._on_request_completed(
@@ -46,6 +47,7 @@ func _run() -> void:
 	await _wait_for_state(client, Client.ConnectionState.ERROR)
 	print("transport test: malformed response state=", client.state)
 	_check(client.technical_details.begins_with("malformed_json"), "malformed response reaches Error")
+	_check(client.last_response_json.is_empty(), "failed refresh clears stale provenance")
 
 	server.enqueue_json(fixture, 0.3)
 	var cancellation_request_count: int = server.request_count

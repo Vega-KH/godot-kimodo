@@ -3,15 +3,16 @@
 An open-source Godot 4.7 editor extension for authoring humanoid animation
 with the local `kimodo-godot-server` backend.
 
-The project is at an early development milestone. Its current vertical slice
-connects an editor dock asynchronously to a loopback MMCP backend, submits
-typed text-to-motion requests, validates the returned SOMA-77 glTF, and plays
-the result immediately in a line-skeleton preview. Recorded motion can also be
-validated and baked into a self-contained native Godot scene and
-`AnimationLibrary`. A saved SOMA-77 take can additionally be retargeted to a
-distinct Godot `SkeletonProfileHumanoid` fixture with explicit rest correction.
-The same humanoid take can be transferred onto the repository's skinned
-Auto-Rig Pro acceptance character with model-space rest-pose correction.
+The project has a working engineering vertical slice. Its editor dock connects
+asynchronously to a loopback MMCP backend, submits one typed text-to-motion
+request, validates the returned SOMA-77 glTF, and previews the result. Motion
+can be saved as native SOMA-77 data, retargeted through a deterministic Godot
+humanoid fixture, previewed on a selected exact-name compatible character, and
+saved on the repository's skinned Auto-Rig Pro acceptance character.
+
+The intended basic product workflow is not complete yet: only one candidate is
+generated, comparison is absent, and saving an artifact is not yet an explicit
+undoable Accept operation into an animation destination.
 
 ## Reference environment
 
@@ -45,19 +46,35 @@ plugin restart, native baking, and short playback scene runs, with:
 ## AI Motion dock
 
 Enable **Kimodo Motion Studio** under **Project > Project Settings > Plugins**.
-The **AI Motion** dock appears on the right and defaults to
-`http://127.0.0.1:8000`. Start `kimodo-godot-server`, press **Connect**, and
-confirm the summary reports `kimodo-soma-rp`, 30 fps, SOMA-77 (77 joints),
-three constraint types, and six contact channels. Stop the backend and press
-**Refresh** to exercise the recoverable error state; technical transport or
-contract details are expandable without blocking the editor.
+The **AI Motion** dock appears on the right and creates a new unsaved
+`MotionDraft`. In **Motion draft and target**, select the project-owned
+character scene before generating. The draft records its project-relative path
+and a deterministic signature of the skeleton hierarchy and rest transforms.
+
+Use **Save As** to create a uniquely named `.tres` under the project. **Save**
+then updates that explicitly opened draft, while **New** starts clean and
+**Load** restores an existing draft without contacting the backend or starting
+generation. Missing targets and saved artifacts are reported individually;
+the remaining draft stays usable.
+
+The connection defaults to `http://127.0.0.1:8000`. Start
+`kimodo-godot-server`, press **Connect**, and confirm the summary reports
+`kimodo-soma-rp`, 30 fps, SOMA-77 (77 joints), three constraint types, and six
+contact channels. Stop the backend and press **Refresh** to exercise the
+recoverable error state; technical transport or contract details are
+expandable without blocking the editor.
 
 Once connected, enter a prompt and choose a frame count, denoising-step count,
-and seed, then press **Generate**. The request runs asynchronously and can be
-canceled. The default 100 denoising steps favors normal-quality previews; lower
-values trade quality for speed, while values up to 200 allow a slower
-higher-quality pass. A valid response starts playing in the embedded SOMA-77
-preview with shared Pause/Play, Loop, and timeline-scrub controls.
+and seed, then press **Generate**. The request runs asynchronously. Cancel stops
+the Godot client from waiting for that response; the current direct MMCP server
+does not yet prove that active model inference stopped. The default 100
+denoising steps favors normal-quality previews; lower values trade quality for
+speed, while values up to 200 allow a slower higher-quality pass. A valid
+response starts playing in the embedded SOMA-77 preview with shared Pause/Play,
+Loop, and timeline-scrub controls. The open draft appends an immutable
+generation record containing the exact request and capability documents,
+protocol/model/fps/skeleton identity, UTC time, and request/capability/response
+SHA-256 hashes. Editing the next prompt does not rewrite that record.
 
 The preview follows planar root motion by default so locomotion remains in
 frame. Left-drag directly on the preview to orbit, use the mouse wheel to zoom,
@@ -72,26 +89,30 @@ the same playback time. Enter a separate humanoid take name and press **Save
 Humanoid Take** to create a self-contained `.tscn` and `.res`; errors and
 output paths are reported independently from generation and source saving.
 
-To preview on a skinned rig, choose a compatible `PackedScene` under **Skinned
-character** after creating the humanoid intermediate. The target must contain
-exactly one `Skeleton3D`, the required Godot humanoid body names including
-`Root` and `Hips`, finite rest transforms, and at least one bound skin. Press
-**Preview on Character** to add the textured character as a third synchronized
-preview with the same playback, scrub, orbit, zoom, and root-follow controls.
-**Clear** removes only the target and derived preview.
+The selected target must contain exactly one `Skeleton3D`, the required exact
+Godot humanoid body names including `Root` and `Hips`, finite rest transforms,
+and at least one bound skin. This is a narrow convention validated with Jenny,
+not yet general rig certification. After creating the humanoid intermediate,
+press **Preview on Character** to add the target as a third synchronized preview
+with the same playback, scrub, orbit, zoom, and root-follow controls. **Clear**
+removes only the target and derived preview.
 
 Enter a project-relative output directory and take name, then press **Save
 Character Take**. The result is a uniquely named, self-contained `.tscn` that
 does not modify the imported character or live previews. Open the saved scene,
 select `KimodoAnimationPlayer`, and choose its `motion` animation to inspect or
-edit the character-specific tracks in Godot's Animation panel.
+edit the character-specific tracks in Godot's Animation panel. Successful
+character, humanoid, and SOMA-77 saves are attached to the open draft as saved
+artifacts; previews are never recorded as artifacts and saved artifacts are not
+yet labeled accepted.
 
-To keep a generated result, enter a project-relative directory beginning with
-`res://` and a take name, then press **Save SOMA-77 Native Take**. The dock creates a
-self-contained `.tscn` plus `.res` `AnimationLibrary`, selects the scene in the
-FileSystem dock, and adds a numeric suffix rather than overwriting an existing
-take. Saving does not interrupt or transfer ownership of the temporary preview,
-and a saved take remains usable after the backend stops.
+To keep a generated result, enter a project-contained `res://` directory and a
+take name, then press **Save SOMA-77 Native Take**. Canonical path validation
+rejects traversal outside the project. The dock creates a self-contained
+`.tscn` plus `.res` `AnimationLibrary`, selects the scene in the FileSystem
+dock, and adds a numeric suffix rather than overwriting an existing take.
+Saving does not interrupt or transfer ownership of the temporary preview, and
+a saved take remains usable after the backend stops.
 
 The entire dock scrolls vertically when its contents exceed the available
 editor height, including after the animation preview becomes visible.

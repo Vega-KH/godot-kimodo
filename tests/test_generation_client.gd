@@ -93,12 +93,14 @@ func _run() -> void:
 	client.cancel_generation()
 	await _wait_seconds(0.35)
 	_check(client.state == GenerationClient.GenerationState.IDLE, "canceled request stays idle")
+	_check(client.message.contains("backend may still"), "cancel message states the server limitation")
 
 	client.timeout_seconds = 0.2
 	server.enqueue_json(fixture, 0.4, 200, "model/gltf+json")
 	client.generate(TEST_URL, capabilities, options)
 	await _wait_for_state(client, GenerationClient.GenerationState.ERROR, 1.0)
 	_check(client.message.contains("timed out"), "slow generation reaches bounded timeout")
+	_check(client.message.contains("backend may still"), "timeout message states the server limitation")
 
 	preview.queue_free()
 	client.queue_free()

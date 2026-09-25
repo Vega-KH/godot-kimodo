@@ -30,7 +30,9 @@ func _init() -> void:
 	_validate_mapping(source_skeleton, target_skeleton)
 	_evaluate_engine_modifier(source_skeleton)
 
-	var output_directory := "user://goal9_%d_%d" % [OS.get_process_id(), Time.get_ticks_usec()]
+	var output_directory := "res://tests/.goal9_%d_%d" % [
+		OS.get_process_id(), Time.get_ticks_usec()
+	]
 	var first := Baker.bake(source, target, output_directory, "walk_humanoid")
 	_check(not first.is_empty(), "first humanoid retarget succeeds")
 	if first.is_empty():
@@ -70,6 +72,7 @@ func _init() -> void:
 	reloaded.queue_free()
 	target.queue_free()
 	source.queue_free()
+	_remove_test_directory(output_directory)
 	_finish()
 
 
@@ -369,6 +372,16 @@ func _find_first(node: Node, type_name: StringName) -> Node:
 		if found != null:
 			return found
 	return null
+
+
+func _remove_test_directory(directory: String) -> void:
+	var absolute := ProjectSettings.globalize_path(directory)
+	var access := DirAccess.open(absolute)
+	if access == null:
+		return
+	for file_name in access.get_files():
+		DirAccess.remove_absolute(absolute.path_join(file_name))
+	DirAccess.remove_absolute(absolute)
 
 
 func _check(condition: bool, description: String) -> void:

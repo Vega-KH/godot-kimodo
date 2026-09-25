@@ -21,6 +21,7 @@ var capabilities: RefCounted
 var message := "Backend connection is idle."
 var technical_details := ""
 var backend_url := DEFAULT_URL
+var last_response_json := ""
 
 var _attempt := 0
 var _active_request: HTTPRequest
@@ -33,6 +34,8 @@ func connect_to_backend(url: String = DEFAULT_URL) -> void:
 	if not validation["ok"]:
 		_attempt += 1
 		_cancel_active_request()
+		capabilities = null
+		last_response_json = ""
 		_set_state(ConnectionState.ERROR, validation["message"], validation["technical"])
 		return
 
@@ -41,6 +44,7 @@ func connect_to_backend(url: String = DEFAULT_URL) -> void:
 	_cancel_active_request()
 	backend_url = normalized
 	capabilities = null
+	last_response_json = ""
 	_set_state(ConnectionState.CONNECTING, "Connecting to the Kimodo backend…")
 
 	var request_node := HTTPRequest.new()
@@ -92,6 +96,7 @@ func disconnect_from_backend() -> void:
 	_attempt += 1
 	_cancel_active_request()
 	capabilities = null
+	last_response_json = ""
 	_set_state(ConnectionState.DISCONNECTED, "Backend disconnected.")
 
 
@@ -143,6 +148,7 @@ func _on_request_completed(
 			"%s: %s" % [parsed["code"], parsed["technical"]],
 		)
 		return
+	last_response_json = body.get_string_from_utf8()
 	capabilities = parsed["capabilities"]
 	_set_state(
 		ConnectionState.READY,

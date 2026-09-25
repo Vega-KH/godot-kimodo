@@ -84,7 +84,10 @@ func cancel_generation() -> void:
 	_attempt += 1
 	_cancel_active_request()
 	if state == GenerationState.GENERATING:
-		_set_state(GenerationState.IDLE, "Generation canceled.")
+		_set_state(
+			GenerationState.IDLE,
+			"Stopped waiting for generation; the local backend may still be finishing it.",
+		)
 
 
 func take_latest_motion() -> RefCounted:
@@ -119,7 +122,7 @@ func _arm_timeout(token: int, request_node: HTTPRequest) -> void:
 		request_node.queue_free()
 	_set_state(
 		GenerationState.ERROR,
-		"Motion generation timed out.",
+		"Stopped waiting because generation timed out; the local backend may still be finishing it.",
 		"Client timeout after %.2f seconds" % timeout_seconds,
 	)
 

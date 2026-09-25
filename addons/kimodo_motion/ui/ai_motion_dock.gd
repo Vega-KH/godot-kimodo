@@ -5,6 +5,10 @@ extends VBoxContainer
 const Client := preload("res://addons/kimodo_motion/transport/mmcp_capabilities_client.gd")
 const GenerationClient := preload("res://addons/kimodo_motion/transport/mmcp_generation_client.gd")
 const GenerationOptions := preload("res://addons/kimodo_motion/domain/generation_options.gd")
+const MotionDraftStore := preload(
+	"res://addons/kimodo_motion/domain/motion_draft_store.gd"
+)
+const ProjectPaths := preload("res://addons/kimodo_motion/domain/project_paths.gd")
 const Preview := preload("res://addons/kimodo_motion/ui/soma77_preview.gd")
 const NativeAnimationBaker := preload(
 	"res://addons/kimodo_motion/animation/native_animation_baker.gd"
@@ -22,6 +26,18 @@ const HumanoidCharacterBaker := preload(
 var _client: Node
 var _generation_client: Node
 var _editor_plugin: EditorPlugin
+var _draft: Resource
+var _draft_path := ""
+var _restoring_draft := false
+var _draft_directory_edit: LineEdit
+var _draft_name_edit: LineEdit
+var _draft_resource_picker: Control
+var _draft_new_button: Button
+var _draft_save_button: Button
+var _draft_save_as_button: Button
+var _draft_load_button: Button
+var _draft_status: Label
+var _draft_details: RichTextLabel
 var _content: VBoxContainer
 var _url_edit: LineEdit
 var _action_button: Button
@@ -92,6 +108,7 @@ func _ready() -> void:
 	name = "AI Motion"
 	custom_minimum_size = Vector2(330.0, 0.0)
 	_build_ui()
+	_on_new_draft_pressed()
 	_bind_client()
 	_bind_generation_client()
 	set_process(true)
@@ -173,6 +190,8 @@ func _build_ui() -> void:
 	_details_text.custom_minimum_size.y = 72.0
 	_details_text.visible = false
 	_content.add_child(_details_text)
+
+	_build_draft_section()
 
 	_content.add_child(HSeparator.new())
 	var generation_title := Label.new()
@@ -375,46 +394,15 @@ func _build_ui() -> void:
 
 	_content.add_child(HSeparator.new())
 	var character_title := Label.new()
-	character_title.text = "Skinned character"
+	character_title.text = "Skinned character preview and output"
 	character_title.add_theme_font_size_override("font_size", 15)
 	_content.add_child(character_title)
-	var target_label := Label.new()
-	target_label.text = "Character scene"
-	_content.add_child(target_label)
-	var target_row := HBoxContainer.new()
-	_content.add_child(target_row)
-	if Engine.is_editor_hint():
-		var editor_picker := EditorResourcePicker.new()
-		editor_picker.base_type = "PackedScene"
-		editor_picker.resource_changed.connect(_on_character_target_changed)
-		_character_target_picker = editor_picker
-	else:
-		# Headless game-mode tests cannot instantiate editor-only controls.
-		# They exercise the same selection callback directly.
-		var test_picker := LineEdit.new()
-		test_picker.editable = false
-		test_picker.placeholder_text = "PackedScene target (editor picker)"
-		_character_target_picker = test_picker
-	_character_target_picker.name = "CharacterTarget"
-	_character_target_picker.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	target_row.add_child(_character_target_picker)
-	_character_clear_button = Button.new()
-	_character_clear_button.name = "ClearCharacterTarget"
-	_character_clear_button.text = "Clear"
-	_character_clear_button.disabled = true
-	_character_clear_button.pressed.connect(_on_clear_character_target_pressed)
-	target_row.add_child(_character_clear_button)
 	_character_preview_button = Button.new()
 	_character_preview_button.name = "PreviewOnCharacter"
 	_character_preview_button.text = "Preview on Character"
 	_character_preview_button.disabled = true
 	_character_preview_button.pressed.connect(_on_preview_character_pressed)
 	_content.add_child(_character_preview_button)
-	_character_status = Label.new()
-	_character_status.name = "CharacterStatus"
-	_character_status.text = "Select a compatible PackedScene target."
-	_character_status.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	_content.add_child(_character_status)
 	var character_save_grid := GridContainer.new()
 	character_save_grid.columns = 2
 	character_save_grid.add_theme_constant_override("h_separation", 12)
@@ -489,6 +477,120 @@ func _build_ui() -> void:
 	_content.add_child(_save_status)
 
 
+func _build_draft_section() -> void:
+	_content.add_child(HSeparator.new())
+	var title := Label.new()
+	title.text = "Motion draft and target"
+	title.add_theme_font_size_override("font_size", 15)
+	_content.add_child(title)
+	var explanation := Label.new()
+	explanation.text = "Choose the character first; the draft keeps intent and provenance."
+	explanation.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	explanation.modulate = Color(0.75, 0.78, 0.82)
+	_content.add_child(explanation)
+
+	var action_row := HBoxContainer.new()
+	_content.add_child(action_row)
+	_draft_new_button = Button.new()
+	_draft_new_button.name = "NewMotionDraft"
+	_draft_new_button.text = "New"
+	_draft_new_button.pressed.connect(_on_new_draft_pressed)
+	action_row.add_child(_draft_new_button)
+	_draft_save_button = Button.new()
+	_draft_save_button.name = "SaveMotionDraft"
+	_draft_save_button.text = "Save"
+	_draft_save_button.pressed.connect(_on_save_draft_pressed)
+	action_row.add_child(_draft_save_button)
+	_draft_save_as_button = Button.new()
+	_draft_save_as_button.name = "SaveAsMotionDraft"
+	_draft_save_as_button.text = "Save As"
+	_draft_save_as_button.pressed.connect(_on_save_as_draft_pressed)
+	action_row.add_child(_draft_save_as_button)
+
+	var load_row := HBoxContainer.new()
+	_content.add_child(load_row)
+	if Engine.is_editor_hint():
+		var editor_draft_picker := EditorResourcePicker.new()
+		editor_draft_picker.base_type = "KimodoMotionDraft"
+		_draft_resource_picker = editor_draft_picker
+	else:
+		var draft_path_edit := LineEdit.new()
+		draft_path_edit.placeholder_text = "res://animations/kimodo/drafts/example.tres"
+		_draft_resource_picker = draft_path_edit
+	_draft_resource_picker.name = "MotionDraftResource"
+	_draft_resource_picker.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	load_row.add_child(_draft_resource_picker)
+	_draft_load_button = Button.new()
+	_draft_load_button.name = "LoadMotionDraft"
+	_draft_load_button.text = "Load"
+	_draft_load_button.pressed.connect(_on_load_draft_pressed)
+	load_row.add_child(_draft_load_button)
+
+	var save_grid := GridContainer.new()
+	save_grid.columns = 2
+	save_grid.add_theme_constant_override("h_separation", 12)
+	save_grid.add_theme_constant_override("v_separation", 5)
+	_content.add_child(save_grid)
+	var directory_label := Label.new()
+	directory_label.text = "Draft directory"
+	save_grid.add_child(directory_label)
+	_draft_directory_edit = LineEdit.new()
+	_draft_directory_edit.name = "MotionDraftDirectory"
+	_draft_directory_edit.text = "res://animations/kimodo/drafts"
+	_draft_directory_edit.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	save_grid.add_child(_draft_directory_edit)
+	var name_label := Label.new()
+	name_label.text = "Draft name"
+	save_grid.add_child(name_label)
+	_draft_name_edit = LineEdit.new()
+	_draft_name_edit.name = "MotionDraftName"
+	_draft_name_edit.text = "kimodo_motion_draft"
+	_draft_name_edit.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	save_grid.add_child(_draft_name_edit)
+
+	var target_label := Label.new()
+	target_label.text = "Character scene"
+	_content.add_child(target_label)
+	var target_row := HBoxContainer.new()
+	_content.add_child(target_row)
+	if Engine.is_editor_hint():
+		var editor_picker := EditorResourcePicker.new()
+		editor_picker.base_type = "PackedScene"
+		editor_picker.resource_changed.connect(_on_character_target_changed)
+		_character_target_picker = editor_picker
+	else:
+		var test_picker := LineEdit.new()
+		test_picker.editable = false
+		test_picker.placeholder_text = "PackedScene target (editor picker)"
+		_character_target_picker = test_picker
+	_character_target_picker.name = "CharacterTarget"
+	_character_target_picker.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	target_row.add_child(_character_target_picker)
+	_character_clear_button = Button.new()
+	_character_clear_button.name = "ClearCharacterTarget"
+	_character_clear_button.text = "Clear"
+	_character_clear_button.disabled = true
+	_character_clear_button.pressed.connect(_on_clear_character_target_pressed)
+	target_row.add_child(_character_clear_button)
+	_character_status = Label.new()
+	_character_status.name = "CharacterStatus"
+	_character_status.text = "Select a project-owned compatible PackedScene target."
+	_character_status.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_content.add_child(_character_status)
+
+	_draft_status = Label.new()
+	_draft_status.name = "MotionDraftStatus"
+	_draft_status.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_content.add_child(_draft_status)
+	_draft_details = RichTextLabel.new()
+	_draft_details.name = "MotionDraftDetails"
+	_draft_details.bbcode_enabled = true
+	_draft_details.fit_content = true
+	_draft_details.custom_minimum_size.y = 72.0
+	_draft_details.meta_clicked.connect(_on_draft_meta_clicked)
+	_content.add_child(_draft_details)
+
+
 func _add_summary_row(grid: GridContainer, label_text: String, value: String, node_name: String) -> Label:
 	var label := Label.new()
 	label.text = label_text
@@ -501,6 +603,215 @@ func _add_summary_row(grid: GridContainer, label_text: String, value: String, no
 	value_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	grid.add_child(value_label)
 	return value_label
+
+
+func _on_new_draft_pressed() -> void:
+	if _generation_client != null and _generation_client.state == GenerationClient.GenerationState.GENERATING:
+		_set_draft_error("Cancel the active generation before creating a new draft.")
+		return
+	_draft = MotionDraftStore.create_draft()
+	_draft_path = ""
+	_prompt_edit.text = _draft.prompt
+	_duration_edit.value = _draft.duration_frames
+	_seed_edit.value = _draft.seed
+	_diffusion_steps_edit.value = _draft.diffusion_steps
+	if _draft_resource_picker is EditorResourcePicker:
+		(_draft_resource_picker as EditorResourcePicker).edited_resource = null
+	elif _draft_resource_picker is LineEdit:
+		(_draft_resource_picker as LineEdit).text = ""
+	if _character_target_picker is EditorResourcePicker:
+		(_character_target_picker as EditorResourcePicker).edited_resource = null
+	_on_character_target_changed(null)
+	_clear_generated_previews()
+	_draft_status.modulate = Color(0.75, 0.78, 0.82)
+	_draft_status.text = "New unsaved draft %s" % _draft.draft_id
+	_update_draft_details()
+
+
+func _clear_generated_previews() -> void:
+	if _preview != null:
+		_preview.clear_motion()
+		_preview.visible = false
+	_clear_humanoid_preview()
+	if _generation_status != null:
+		_generation_status.modulate = Color(0.7, 0.72, 0.76)
+		_generation_status.text = "No motion generated for this draft."
+	if _save_status != null:
+		_save_status.modulate = Color(0.7, 0.72, 0.76)
+		_save_status.text = "Generate a validated motion before saving."
+	var playback_controls := _play_button.get_parent() as Control
+	playback_controls.visible = false
+	var camera_controls := _follow_root_toggle.get_parent() as Control
+	camera_controls.visible = false
+	_update_generation_availability()
+
+
+func _ensure_draft() -> Resource:
+	if _draft == null:
+		_draft = MotionDraftStore.create_draft()
+	return _draft
+
+
+func _sync_draft_from_ui() -> void:
+	var draft := _ensure_draft()
+	MotionDraftStore.sync_editable_intent(
+		draft,
+		_prompt_edit.text,
+		int(_duration_edit.value),
+		int(_seed_edit.value),
+		int(_diffusion_steps_edit.value),
+	)
+
+
+func _on_save_draft_pressed() -> void:
+	_sync_draft_from_ui()
+	if _draft_path.is_empty():
+		_on_save_as_draft_pressed()
+		return
+	var result := MotionDraftStore.save(_draft, _draft_path)
+	_apply_draft_save_result(result)
+
+
+func _on_save_as_draft_pressed() -> void:
+	_sync_draft_from_ui()
+	var result := MotionDraftStore.save_as(
+		_draft,
+		_draft_directory_edit.text.strip_edges(),
+		_draft_name_edit.text.strip_edges(),
+	)
+	_apply_draft_save_result(result)
+
+
+func _apply_draft_save_result(result: Dictionary) -> void:
+	if not result["ok"]:
+		_set_draft_error(result["message"])
+		return
+	_draft_path = result["path"]
+	if _draft_resource_picker is EditorResourcePicker:
+		(_draft_resource_picker as EditorResourcePicker).edited_resource = _draft
+	elif _draft_resource_picker is LineEdit:
+		(_draft_resource_picker as LineEdit).text = _draft_path
+	_draft_status.modulate = Color(0.25, 0.85, 0.45)
+	_draft_status.text = "Saved draft %s" % _draft_path
+	_update_draft_details()
+	_refresh_saved_resource(_draft_path)
+
+
+func _on_load_draft_pressed() -> void:
+	if _generation_client != null and _generation_client.state == GenerationClient.GenerationState.GENERATING:
+		_set_draft_error("Cancel the active generation before loading a draft.")
+		return
+	var path := ""
+	if _draft_resource_picker is EditorResourcePicker:
+		var selected := (_draft_resource_picker as EditorResourcePicker).edited_resource
+		if selected != null:
+			path = selected.resource_path
+	elif _draft_resource_picker is LineEdit:
+		path = (_draft_resource_picker as LineEdit).text.strip_edges()
+	if path.is_empty():
+		_set_draft_error("Choose a MotionDraft resource to load.")
+		return
+	var result := MotionDraftStore.load_draft(path)
+	if not result["ok"]:
+		_set_draft_error(result["message"])
+		return
+	_draft = result["draft"]
+	_draft_path = result["path"]
+	_clear_generated_previews()
+	_apply_loaded_draft(result)
+
+
+func _apply_loaded_draft(load_result: Dictionary) -> void:
+	_prompt_edit.text = _draft.prompt
+	_duration_edit.value = _draft.duration_frames
+	_seed_edit.value = _draft.seed
+	_diffusion_steps_edit.value = _draft.diffusion_steps
+	_restoring_draft = true
+	var target_resource: Resource = null
+	if not _draft.target_scene_path.is_empty() and ResourceLoader.exists(_draft.target_scene_path):
+		target_resource = ResourceLoader.load(
+			_draft.target_scene_path, "PackedScene", ResourceLoader.CACHE_MODE_REUSE
+		)
+	if _character_target_picker is EditorResourcePicker:
+		(_character_target_picker as EditorResourcePicker).edited_resource = target_resource
+	_on_character_target_changed(target_resource)
+	_restoring_draft = false
+	var available: Array = load_result["available_artifacts"]
+	var missing: Array = load_result["missing_artifacts"]
+	_draft_status.modulate = Color(0.95, 0.72, 0.2) if not missing.is_empty() else Color(0.25, 0.85, 0.45)
+	_draft_status.text = "Loaded draft %s — %d artifacts available, %d missing." % [
+		_draft_path, available.size(), missing.size(),
+	]
+	if target_resource == null and not _draft.target_scene_path.is_empty():
+		_draft_status.text += " Target is missing: %s" % _draft.target_scene_path
+	_update_draft_details()
+
+
+func _update_draft_details() -> void:
+	if _draft_details == null:
+		return
+	_draft_details.clear()
+	if _draft == null:
+		_draft_details.append_text("No draft is open.")
+		return
+	_draft_details.append_text("Draft ID: %s\n" % _draft.draft_id)
+	_draft_details.append_text("Target: ")
+	_append_draft_path(_draft.target_scene_path)
+	_draft_details.append_text("\n")
+	var record: Dictionary = _draft.active_generation_record()
+	if record.is_empty():
+		_draft_details.append_text("Provenance: no validated generation recorded\n")
+	else:
+		_draft_details.append_text(
+			"Provenance: %s · MMCP %s · %.0f fps · %s\n" % [
+				record.get("model_id", "unknown"),
+				record.get("protocol_version", "unknown"),
+				float(record.get("fps", 0.0)),
+				record.get("generated_at_utc", "unknown time"),
+			]
+		)
+		_draft_details.append_text("Request: %s  Response: %s\n" % [
+			String(record.get("request_sha256", "")).left(12),
+			String(record.get("response_sha256", "")).left(12),
+		])
+	var artifact_types: Array[String] = []
+	for artifact_type in _draft.artifacts:
+		artifact_types.append(String(artifact_type))
+	artifact_types.sort()
+	if artifact_types.is_empty():
+		_draft_details.append_text("Artifacts: none saved")
+	else:
+		_draft_details.append_text("Artifacts:\n")
+		for artifact_type in artifact_types:
+			var entry: Variant = _draft.artifacts[artifact_type]
+			var artifact_path := String(entry.get("path", "")) if entry is Dictionary else ""
+			var availability := "available" if FileAccess.file_exists(artifact_path) else "missing"
+			_draft_details.append_text("  %s (%s): " % [artifact_type, availability])
+			_append_draft_path(artifact_path)
+			_draft_details.append_text("\n")
+
+
+func _append_draft_path(path: String) -> void:
+	if path.is_empty():
+		_draft_details.append_text("none")
+		return
+	_draft_details.push_meta(path)
+	_draft_details.append_text(path)
+	_draft_details.pop()
+
+
+func _on_draft_meta_clicked(meta: Variant) -> void:
+	var path := String(meta)
+	var validation := ProjectPaths.validate_file(path)
+	if not validation["ok"] or not FileAccess.file_exists(validation["path"]):
+		_set_draft_error("The selected draft artifact is unavailable: %s" % path)
+		return
+	_refresh_saved_resource(validation["path"])
+
+
+func _set_draft_error(message: String) -> void:
+	_draft_status.modulate = Color(1.0, 0.35, 0.3)
+	_draft_status.text = message
 
 
 func _bind_client() -> void:
@@ -602,6 +913,7 @@ func _on_generate_pressed() -> void:
 	if _generation_client.state == GenerationClient.GenerationState.GENERATING:
 		_generation_client.cancel_generation()
 		return
+	_sync_draft_from_ui()
 	var options := GenerationOptions.new()
 	options.prompt = _prompt_edit.text
 	options.duration_frames = int(_duration_edit.value)
@@ -652,13 +964,32 @@ func _update_generation_availability() -> void:
 	_seed_edit.editable = not generating
 	_diffusion_steps_edit.editable = not generating
 	_action_button.disabled = generating
+	_draft_new_button.disabled = generating
+	_draft_save_button.disabled = generating
+	_draft_save_as_button.disabled = generating
+	_draft_load_button.disabled = generating
 	_update_save_availability()
 	_update_retarget_availability()
 
 
 func _on_motion_ready() -> void:
 	var motion: RefCounted = _generation_client.take_latest_motion()
-	_accept_source_motion(motion)
+	if not _accept_source_motion(motion):
+		return
+	_sync_draft_from_ui()
+	var provenance_result := MotionDraftStore.append_generation_record(
+		_draft,
+		_generation_client.last_request_json,
+		_client.last_response_json,
+		_generation_client.last_response_bytes,
+		_client.capabilities,
+	)
+	if not provenance_result["ok"]:
+		_set_draft_error(provenance_result["message"])
+	else:
+		_draft_status.modulate = Color(0.25, 0.85, 0.45)
+		_draft_status.text = "Validated generation provenance recorded in the open draft."
+		_update_draft_details()
 
 
 func _accept_source_motion(motion: RefCounted) -> bool:
@@ -806,6 +1137,13 @@ func _clear_humanoid_preview() -> void:
 	if _humanoid_save_status != null:
 		_humanoid_save_status.modulate = Color(0.7, 0.72, 0.76)
 		_humanoid_save_status.text = "Retarget the current motion before saving."
+	if _retarget_status != null:
+		_retarget_status.modulate = Color(0.7, 0.72, 0.76)
+		_retarget_status.text = (
+			"Retarget the current generated motion."
+			if _preview != null and _preview.has_motion()
+			else "Generate a validated motion before retargeting."
+		)
 	_update_retarget_availability()
 
 
@@ -826,9 +1164,11 @@ func _update_retarget_availability() -> void:
 func _on_save_humanoid_take_pressed() -> void:
 	var directory := _humanoid_directory_edit.text.strip_edges()
 	var take_name := _humanoid_name_edit.text.strip_edges()
-	if not directory.begins_with("res://"):
-		_set_humanoid_save_error("Directory must be project-relative and begin with res://.")
+	var directory_result := ProjectPaths.validate_directory(directory)
+	if not directory_result["ok"]:
+		_set_humanoid_save_error(directory_result["message"])
 		return
+	directory = directory_result["path"]
 	if take_name.is_empty():
 		_set_humanoid_save_error("Take name cannot be empty.")
 		return
@@ -847,6 +1187,8 @@ func _on_save_humanoid_take_pressed() -> void:
 	_humanoid_save_status.text = "Saved %s and %s" % [
 		result["scene_path"], result["library_path"]
 	]
+	_record_draft_artifact("humanoid_scene", result["scene_path"])
+	_record_draft_artifact("humanoid_library", result["library_path"])
 	_refresh_saved_resource(result["scene_path"])
 
 
@@ -861,7 +1203,10 @@ func _on_character_target_changed(resource: Resource) -> void:
 	_character_clear_button.disabled = resource == null
 	if resource == null:
 		_character_status.modulate = Color(0.7, 0.72, 0.76)
-		_character_status.text = "Select a compatible PackedScene target."
+		_character_status.text = "Select a project-owned compatible PackedScene target."
+		if not _restoring_draft and _draft != null:
+			MotionDraftStore.set_target(_draft, "", null)
+			_update_draft_details()
 		_update_character_availability()
 		return
 	if not resource is PackedScene:
@@ -878,6 +1223,22 @@ func _on_character_target_changed(resource: Resource) -> void:
 		_set_character_error(error)
 		return
 	var skeleton := _find_first_node(instance, "Skeleton3D") as Skeleton3D
+	var scene_path := (resource as PackedScene).resource_path
+	var signature := MotionDraftStore.skeleton_signature(skeleton)
+	if _restoring_draft:
+		if (
+			not _draft.target_skeleton_signature.is_empty()
+			and _draft.target_skeleton_signature != signature
+		):
+			instance.free()
+			_set_character_error("The draft target skeleton has changed since it was recorded.")
+			return
+	else:
+		var target_result := MotionDraftStore.set_target(_ensure_draft(), scene_path, skeleton)
+		if not target_result["ok"]:
+			instance.free()
+			_set_character_error(target_result["message"])
+			return
 	var bone_count := skeleton.get_bone_count()
 	var skinned_meshes := 0
 	for found in instance.find_children("*", "MeshInstance3D", true, false):
@@ -889,6 +1250,7 @@ func _on_character_target_changed(resource: Resource) -> void:
 	_character_status.text = "Compatible target: %d bones, %d skinned meshes." % [
 		bone_count, skinned_meshes,
 	]
+	_update_draft_details()
 	_update_character_availability()
 
 
@@ -979,9 +1341,11 @@ func _update_character_availability() -> void:
 func _on_save_character_take_pressed() -> void:
 	var directory := _character_directory_edit.text.strip_edges()
 	var take_name := _character_name_edit.text.strip_edges()
-	if not directory.begins_with("res://"):
-		_set_character_save_error("Directory must be project-relative and begin with res://.")
+	var directory_result := ProjectPaths.validate_directory(directory)
+	if not directory_result["ok"]:
+		_set_character_save_error(directory_result["message"])
 		return
+	directory = directory_result["path"]
 	if take_name.is_empty():
 		_set_character_save_error("Take name cannot be empty.")
 		return
@@ -1000,6 +1364,7 @@ func _on_save_character_take_pressed() -> void:
 	_character_save_status.text = "Saved %s with animation '%s'." % [
 		result["scene_path"], result["animation_name"],
 	]
+	_record_draft_artifact("character_scene", result["scene_path"])
 	_refresh_saved_resource(result["scene_path"])
 
 
@@ -1017,9 +1382,11 @@ func _set_character_save_error(message: String) -> void:
 func _on_save_native_take_pressed() -> void:
 	var directory := _save_directory_edit.text.strip_edges()
 	var take_name := _save_name_edit.text.strip_edges()
-	if not directory.begins_with("res://"):
-		_set_save_error("Directory must be project-relative and begin with res://.")
+	var directory_result := ProjectPaths.validate_directory(directory)
+	if not directory_result["ok"]:
+		_set_save_error(directory_result["message"])
 		return
+	directory = directory_result["path"]
 	if take_name.is_empty():
 		_set_save_error("Take name cannot be empty.")
 		return
@@ -1032,7 +1399,18 @@ func _on_save_native_take_pressed() -> void:
 		return
 	_save_status.modulate = Color(0.25, 0.85, 0.45)
 	_save_status.text = "Saved %s and %s" % [result["scene_path"], result["library_path"]]
+	_record_draft_artifact("soma77_scene", result["scene_path"])
+	_record_draft_artifact("soma77_library", result["library_path"])
 	_refresh_saved_resource(result["scene_path"])
+
+
+func _record_draft_artifact(artifact_type: String, path: String) -> void:
+	_sync_draft_from_ui()
+	var result := MotionDraftStore.record_artifact(_draft, artifact_type, path)
+	if not result["ok"]:
+		_set_draft_error(result["message"])
+		return
+	_update_draft_details()
 
 
 func _set_save_error(message: String) -> void:

@@ -4,6 +4,7 @@ extends RefCounted
 const HumanoidMap := preload(
 	"res://addons/kimodo_motion/retargeting/soma77_humanoid_map.gd"
 )
+const ProjectPaths := preload("res://addons/kimodo_motion/domain/project_paths.gd")
 const ANIMATION_NAME := "motion"
 const PLAYER_NODE_NAME := "KimodoAnimationPlayer"
 
@@ -120,10 +121,11 @@ static func save_motion(
 	if player == null or not player.has_animation(ANIMATION_NAME):
 		push_error("Cannot save a character scene without its Kimodo animation")
 		return {}
-	var absolute_directory := ProjectSettings.globalize_path(output_directory)
-	if DirAccess.make_dir_recursive_absolute(absolute_directory) != OK:
-		push_error("Cannot create character output directory: %s" % output_directory)
+	var directory_result := ProjectPaths.ensure_directory(output_directory)
+	if not directory_result["ok"]:
+		push_error(directory_result["message"])
 		return {}
+	output_directory = directory_result["path"]
 	var stem := _unique_stem(output_directory, requested_stem)
 	var scene_path := output_directory.path_join(stem + ".tscn")
 	var packed := PackedScene.new()
@@ -134,6 +136,8 @@ static func save_motion(
 		) != OK
 	):
 		push_error("Cannot save retargeted character scene: %s" % scene_path)
+		if FileAccess.file_exists(scene_path):
+			DirAccess.remove_absolute(ProjectSettings.globalize_path(scene_path))
 		return {}
 	return {
 		"stem": stem,

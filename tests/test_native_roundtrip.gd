@@ -21,7 +21,9 @@ func _init() -> void:
 	var source_skeleton := _find_first(imported, "Skeleton3D") as Skeleton3D
 	var source_animation := source_player.get_animation(source_player.get_animation_list()[0])
 
-	var output_directory := "user://goal5_%d_%d" % [OS.get_process_id(), Time.get_ticks_usec()]
+	var output_directory := "res://tests/.goal5_%d_%d" % [
+		OS.get_process_id(), Time.get_ticks_usec()
+	]
 	var first := Baker.bake(imported, output_directory, "walk")
 	_check(not first.is_empty(), "first native bake succeeds")
 	if first.is_empty():
@@ -75,6 +77,7 @@ func _init() -> void:
 
 	reloaded.queue_free()
 	imported.queue_free()
+	_remove_test_directory(output_directory)
 	_finish()
 
 
@@ -131,6 +134,16 @@ func _find_first(node: Node, type_name: StringName) -> Node:
 		if found != null:
 			return found
 	return null
+
+
+func _remove_test_directory(directory: String) -> void:
+	var absolute := ProjectSettings.globalize_path(directory)
+	var access := DirAccess.open(absolute)
+	if access == null:
+		return
+	for file_name in access.get_files():
+		DirAccess.remove_absolute(absolute.path_join(file_name))
+	DirAccess.remove_absolute(absolute)
 
 
 func _check(condition: bool, description: String) -> void:
