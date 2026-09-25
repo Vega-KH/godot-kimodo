@@ -705,12 +705,12 @@ func _activate_session(session: Resource, path: String, load_result: Dictionary)
 	_draft = session
 	_draft_path = path
 	_clear_generated_previews()
+	_restoring_draft = true
 	_prompt_edit.text = session.prompt
 	_duration_edit.value = session.duration_frames
 	_seed_edit.value = session.seed
 	_diffusion_steps_edit.value = session.diffusion_steps
 	_take_count_edit.value = session.requested_take_count
-	_restoring_draft = true
 	var target_resource: Resource = null
 	if not session.target_scene_path.is_empty() and ResourceLoader.exists(session.target_scene_path):
 		target_resource = ResourceLoader.load(

@@ -35,6 +35,26 @@ func _run() -> void:
 
 	var draft := DraftStore.create_draft()
 	DraftStore.sync_editable_intent(draft, "Legacy jump", 30, 1234, 100)
+	draft.target_scene_path = "res://tests/characters/fixtures/Jenny03.glb"
+	draft.target_skeleton_signature = "legacy-target-signature"
+	draft.rig_profile_path = "res://profiles/legacy_profile.tres"
+	draft.animation_destination = "Character/AnimationPlayer:library"
+	draft.requested_candidate_count = 2
+	draft.generation_preset = "legacy-quality"
+	draft.notes = "Keep these migration notes exactly."
+	draft.generation_records.assign([{
+		"record_id": "legacy-record",
+		"request_json": "{\"legacy\":true}",
+		"response_sha256": "legacy-response-hash",
+	}])
+	draft.active_generation_index = 0
+	draft.artifacts = {
+		"character_scene": {
+			"status": "saved",
+			"path": "res://animations/kimodo/legacy_character.tscn",
+			"generation_record_id": "legacy-record",
+		}
+	}
 	var draft_saved := DraftStore.save_as(draft, TEST_DIRECTORY, "legacy")
 	_check(draft_saved["ok"], "legacy migration fixture saves")
 	if draft_saved["ok"]:
@@ -43,9 +63,24 @@ func _run() -> void:
 		var migrated := SessionStore.open(draft_saved["path"])
 		_check(migrated["ok"], "Goal 13 draft migrates")
 		if migrated["ok"]:
+			var migrated_session: Resource = migrated["session"]
 			_paths.append(migrated["path"])
-			_check(migrated["session"].session_id == draft.draft_id, "migration preserves identity")
-			_check(migrated["session"].prompt == draft.prompt, "migration preserves intent")
+			_check(migrated_session.session_id == draft.draft_id, "migration preserves identity")
+			_check(migrated_session.migrated_from_draft_id == draft.draft_id, "migration records source identity")
+			_check(migrated_session.target_scene_path == draft.target_scene_path, "migration preserves target path")
+			_check(migrated_session.target_skeleton_signature == draft.target_skeleton_signature, "migration preserves target signature")
+			_check(migrated_session.rig_profile_path == draft.rig_profile_path, "migration preserves rig profile")
+			_check(migrated_session.animation_destination == draft.animation_destination, "migration preserves destination")
+			_check(migrated_session.prompt == draft.prompt, "migration preserves prompt")
+			_check(migrated_session.duration_frames == draft.duration_frames, "migration preserves duration")
+			_check(migrated_session.seed == draft.seed, "migration preserves seed")
+			_check(migrated_session.diffusion_steps == draft.diffusion_steps, "migration preserves steps")
+			_check(migrated_session.requested_take_count == draft.requested_candidate_count, "migration preserves requested count")
+			_check(migrated_session.generation_preset == draft.generation_preset, "migration preserves preset")
+			_check(migrated_session.notes == draft.notes, "migration preserves notes")
+			_check(migrated_session.generation_records == draft.generation_records, "migration preserves exact generation records")
+			_check(migrated_session.active_generation_index == draft.active_generation_index, "migration preserves active generation")
+			_check(migrated_session.artifacts == draft.artifacts, "migration preserves exact artifact links")
 			_check(not migrated["migrated_from"].is_empty(), "migration reports its source")
 		_check(FileAccess.get_sha256(draft_saved["path"]) == original_hash, "migration leaves draft byte-identical")
 

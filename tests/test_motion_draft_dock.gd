@@ -114,6 +114,7 @@ func _run() -> void:
 	_check(generation.last_response_bytes.is_empty(), "session switch discards transient response bytes")
 	_check((dock.find_child("RecentSessions", true, false) as OptionButton).item_count >= 1, "saved session appears in recent sessions")
 
+	var before_open_hash := FileAccess.get_sha256(session_path)
 	var picker := dock.find_child("SessionResource", true, false) as Control
 	if picker is EditorResourcePicker:
 		(picker as EditorResourcePicker).edited_resource = ResourceLoader.load(
@@ -123,7 +124,9 @@ func _run() -> void:
 		(picker as LineEdit).text = session_path
 	(dock.find_child("OpenSession", true, false) as Button).emit_signal("pressed")
 	await process_frame
+	await create_timer(0.6).timeout
 	_check(dock._draft != null and dock._draft.prompt == prompt.text, "offline reopen restores intent")
+	_check(FileAccess.get_sha256(session_path) == before_open_hash, "opening a session does not dirty or rewrite it")
 	_check(dock._draft.active_take_summaries().size() == 2, "offline reopen restores summaries")
 	_check(dock._draft.artifacts.size() == 2, "offline reopen restores saved selected-take artifacts")
 	_check(dock._take_set.is_empty(), "offline reopen does not invent transient payloads")
