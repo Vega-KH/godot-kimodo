@@ -797,6 +797,8 @@ func _flush_session() -> bool:
 
 func _clear_generated_previews() -> void:
 	_release_and_free_take_motions()
+	if _generation_client != null:
+		_generation_client.reset()
 	if _preview != null:
 		_preview.clear_motion()
 		_preview.visible = false

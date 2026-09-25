@@ -110,6 +110,8 @@ func _run() -> void:
 	await process_frame
 	_check(landing.visible and dock._draft == null, "switch returns to session chooser")
 	_check(dock._take_set.is_empty(), "unsaved take payloads are discarded on close")
+	_check(generation.last_request_json.is_empty(), "session switch discards transient request text")
+	_check(generation.last_response_bytes.is_empty(), "session switch discards transient response bytes")
 	_check((dock.find_child("RecentSessions", true, false) as OptionButton).item_count >= 1, "saved session appears in recent sessions")
 
 	var picker := dock.find_child("SessionResource", true, false) as Control
