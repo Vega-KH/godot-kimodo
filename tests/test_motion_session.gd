@@ -39,7 +39,7 @@ func _run() -> void:
 	draft.target_skeleton_signature = "legacy-target-signature"
 	draft.rig_profile_path = "res://profiles/legacy_profile.tres"
 	draft.animation_destination = "Character/AnimationPlayer:library"
-	draft.requested_candidate_count = 2
+	draft.requested_candidate_count = 16
 	draft.generation_preset = "legacy-quality"
 	draft.notes = "Keep these migration notes exactly."
 	draft.generation_records.assign([{
@@ -60,6 +60,7 @@ func _run() -> void:
 	if draft_saved["ok"]:
 		_paths.append(draft_saved["path"])
 		var original_hash := FileAccess.get_sha256(draft_saved["path"])
+		var original_updated_at: String = draft.updated_at_utc
 		var migrated := SessionStore.open(draft_saved["path"])
 		_check(migrated["ok"], "Goal 13 draft migrates")
 		if migrated["ok"]:
@@ -67,6 +68,9 @@ func _run() -> void:
 			_paths.append(migrated["path"])
 			_check(migrated_session.session_id == draft.draft_id, "migration preserves identity")
 			_check(migrated_session.migrated_from_draft_id == draft.draft_id, "migration records source identity")
+			_check(migrated_session.migrated_from_draft_schema_version == draft.schema_version, "migration preserves source schema")
+			_check(migrated_session.migrated_from_draft_updated_at_utc == original_updated_at, "migration preserves source timestamp")
+			_check(migrated_session.migrated_requested_candidate_count == draft.requested_candidate_count, "migration preserves legacy requested count")
 			_check(migrated_session.target_scene_path == draft.target_scene_path, "migration preserves target path")
 			_check(migrated_session.target_skeleton_signature == draft.target_skeleton_signature, "migration preserves target signature")
 			_check(migrated_session.rig_profile_path == draft.rig_profile_path, "migration preserves rig profile")
@@ -75,7 +79,7 @@ func _run() -> void:
 			_check(migrated_session.duration_frames == draft.duration_frames, "migration preserves duration")
 			_check(migrated_session.seed == draft.seed, "migration preserves seed")
 			_check(migrated_session.diffusion_steps == draft.diffusion_steps, "migration preserves steps")
-			_check(migrated_session.requested_take_count == draft.requested_candidate_count, "migration preserves requested count")
+			_check(migrated_session.requested_take_count == 2, "migration safely normalizes the active tested count")
 			_check(migrated_session.generation_preset == draft.generation_preset, "migration preserves preset")
 			_check(migrated_session.notes == draft.notes, "migration preserves notes")
 			_check(migrated_session.generation_records == draft.generation_records, "migration preserves exact generation records")

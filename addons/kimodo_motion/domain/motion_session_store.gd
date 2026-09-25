@@ -174,6 +174,14 @@ static func open(path: String) -> Dictionary:
 		return _error("missing_session", "The selected session does not exist.", validation["path"])
 	var loaded := ResourceLoader.load(validation["path"], "Resource", ResourceLoader.CACHE_MODE_IGNORE)
 	if loaded is MotionDraft:
+		if loaded.schema_version != MotionDraft.SCHEMA_VERSION:
+			return _error(
+				"unsupported_draft",
+				"This Goal 13 draft schema cannot be migrated safely.",
+				"Received schema version %d; expected %d." % [
+					loaded.schema_version, MotionDraft.SCHEMA_VERSION,
+				],
+			)
 		var original_hash := FileAccess.get_sha256(validation["path"])
 		var session := migrate_draft(loaded)
 		var migrated_result := save_as(session, DEFAULT_DIRECTORY, session.title.to_snake_case())
@@ -194,6 +202,9 @@ static func migrate_draft(draft: Resource) -> Resource:
 	var session := Session.create_new("Migrated motion session")
 	session.session_id = draft.draft_id
 	session.migrated_from_draft_id = draft.draft_id
+	session.migrated_from_draft_schema_version = draft.schema_version
+	session.migrated_from_draft_updated_at_utc = draft.updated_at_utc
+	session.migrated_requested_candidate_count = draft.requested_candidate_count
 	session.created_at_utc = draft.created_at_utc
 	session.updated_at_utc = draft.updated_at_utc
 	session.target_scene_path = draft.target_scene_path
