@@ -105,25 +105,28 @@ repository's 56-bone Godot humanoid A-pose. The preview layer selector switches
 between the cyan SOMA-77 source, pink humanoid intermediate, and selected
 character result while all three remain at the same playback time.
 
-The selected target must contain exactly one `Skeleton3D`, the required exact
-Godot humanoid body names including `Root` and `Hips`, finite rest transforms,
-and at least one bound skin. This is a narrow convention validated with Jenny,
-not yet general rig certification. Changing the character rebuilds the derived
-preview automatically. **Clear** removes only the target and derived preview.
+The selected target must contain exactly one `Skeleton3D`, finite rest
+transforms, and at least one bound skin. The current automatic profile matches
+Godot humanoid semantic names and has been validated with Jenny; the retargeter
+itself accepts explicit canonical-to-character bone profiles so future imported
+rigs do not require Jenny-specific transfer code. Changing the character
+rebuilds the derived preview automatically. **Clear** removes only the target
+and derived preview.
 
-To keep the selected result, choose **Character take** (the default),
-**Humanoid take**, or **SOMA-77 native take** and press **Save…**. Godot's save
-dialog chooses both the project location and `.tscn` filename, so the dock has
-no separate directory or name fields. Character output is one self-contained
-scene; humanoid and SOMA-77 output also create a same-named `.res`
-`AnimationLibrary`. Canonical path validation keeps output inside `res://`, and
-an existing scene or companion resource is rejected rather than overwritten.
-Open a saved character scene, select `KimodoAnimationPlayer`, and choose its
-`motion` animation to inspect or edit its tracks in Godot's Animation panel.
-Successful saves are attached to the open session and selected take as saved
-artifacts; previews are never recorded as artifacts and saved artifacts are not
-yet labeled accepted. Saving does not interrupt the temporary preview, and a
-saved take remains usable after the backend stops.
+To keep the selected result, choose **Character animation** (the default),
+**Humanoid animation**, **SOMA-77 animation**, or **Character Preview**, then
+press **Save…**. Godot's save dialog chooses the project location and filename,
+so the dock has no separate directory or name fields. The three animation
+choices create one lightweight `.res` `AnimationLibrary` in the selected rig's
+track namespace. Character Preview creates one large, self-contained `.tscn`
+with the selected character baked in. Canonical path validation keeps output
+inside `res://`, and existing files are rejected rather than overwritten.
+Attach a character animation library to an `AnimationPlayer` under the same
+character root to inspect or play its `motion` animation in Godot's Animation
+panel. Successful saves record their rig layer, artifact form, target signature
+where relevant, and selected-take provenance in the open session.
+Saving does not interrupt the temporary preview, and a saved animation remains
+usable after the backend stops.
 
 Each workspace tab scrolls with the dock when its contents exceed the available
 editor height, including after the animation preview becomes visible.

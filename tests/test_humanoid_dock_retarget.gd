@@ -36,10 +36,10 @@ func _run() -> void:
 	_check(humanoid.has_motion(), "retarget action creates an in-memory humanoid preview")
 	_check(source.motion_scene() == source_scene, "retargeting preserves the source preview")
 	_check(humanoid.skeleton().get_bone_count() == 56, "preview uses the 56-bone profile")
-	_check(_animation(humanoid).get_track_count() == 24, "preview has 24 target tracks")
+	_check(_animation(humanoid).get_track_count() == 57, "preview has full humanoid target tracks")
 	_check(selector.visible and not selector.disabled, "preview selector becomes available")
-	save_type.select(PreviewPanel.SaveKind.HUMANOID)
-	save_type.emit_signal("item_selected", PreviewPanel.SaveKind.HUMANOID)
+	save_type.select(PreviewPanel.SaveKind.HUMANOID_ANIMATION)
+	save_type.emit_signal("item_selected", PreviewPanel.SaveKind.HUMANOID_ANIMATION)
 	_check(not save.disabled, "humanoid save enables after conversion")
 	var follow_root := dock.find_child("FollowRoot", true, false) as CheckButton
 	var reset_camera := dock.find_child("ResetCamera", true, false) as Button
@@ -124,29 +124,22 @@ func _run() -> void:
 	var relative_directory := "res://tests/.goal10_%d_%d" % [
 		OS.get_process_id(), Time.get_ticks_usec()
 	]
-	var first_scene := relative_directory.path_join("dock humanoid.tscn")
 	var first_library := relative_directory.path_join("dock humanoid.res")
-	dock._preview_panel.submit_save_path(PreviewPanel.SaveKind.HUMANOID, first_scene)
+	dock._preview_panel.submit_save_path(PreviewPanel.SaveKind.HUMANOID_ANIMATION, first_library)
 	var save_status := dock.find_child("TakeSaveStatus", true, false) as Label
-	_check(FileAccess.file_exists(first_scene), "humanoid scene is saved")
 	_check(FileAccess.file_exists(first_library), "humanoid library is saved")
-	_check(save_status.text.contains(first_scene), "saved paths are reported")
+	_check(save_status.text.contains(first_library), "saved path is reported")
 	_check(humanoid.motion_scene() == preview_scene, "save preserves preview ownership")
-	dock._preview_panel.submit_save_path(PreviewPanel.SaveKind.HUMANOID, first_scene)
+	dock._preview_panel.submit_save_path(PreviewPanel.SaveKind.HUMANOID_ANIMATION, first_library)
 	_check(save_status.text.contains("never overwrites"), "existing output is rejected explicitly")
 
-	var packed := ResourceLoader.load(
-		first_scene, "PackedScene", ResourceLoader.CACHE_MODE_IGNORE
-	) as PackedScene
-	var saved_scene := packed.instantiate()
-	root.add_child(saved_scene)
-	var saved_skeleton := _find_first(saved_scene, "Skeleton3D") as Skeleton3D
-	var saved_player := _find_first(saved_scene, "AnimationPlayer") as AnimationPlayer
-	_check(saved_skeleton.get_bone_count() == 56, "saved scene reloads its target skeleton")
-	_compare_animations(preview_animation, saved_player.get_animation("motion"))
+	var saved_library := ResourceLoader.load(
+		first_library, "AnimationLibrary", ResourceLoader.CACHE_MODE_IGNORE
+	) as AnimationLibrary
+	_compare_animations(preview_animation, saved_library.get_animation("motion"))
 
 	dock._preview_panel.submit_save_path(
-		PreviewPanel.SaveKind.HUMANOID, "user://not-project-relative.tscn"
+		PreviewPanel.SaveKind.HUMANOID_ANIMATION, "user://not-project-relative.res"
 	)
 	_check(save_status.text.contains("res://"), "invalid humanoid destination is rejected")
 	_check(humanoid.motion_scene() == preview_scene, "save failure preserves the preview")
@@ -174,7 +167,6 @@ func _run() -> void:
 	_check(error_status.text.contains("Skeleton3D"), "invalid fixture gets a local retarget error")
 	_check(invalid_source.motion_scene() == invalid_source_scene, "fixture error preserves source")
 
-	saved_scene.queue_free()
 	dock.queue_free()
 	invalid_dock.queue_free()
 	await process_frame

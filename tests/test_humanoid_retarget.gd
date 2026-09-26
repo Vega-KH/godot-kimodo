@@ -67,6 +67,7 @@ func _init() -> void:
 	var reloaded_player := _find_first(reloaded, "AnimationPlayer") as AnimationPlayer
 	_validate_reloaded(target_skeleton, reloaded_skeleton, reloaded_player)
 	_validate_motion(source, reloaded)
+	_validate_finger_rich_motion(source, target)
 	_validate_dependency_closure(first["scene_path"])
 
 	reloaded.queue_free()
@@ -74,6 +75,107 @@ func _init() -> void:
 	source.queue_free()
 	_remove_test_directory(output_directory)
 	_finish()
+
+
+func _validate_finger_rich_motion(source: Node, target: Node) -> void:
+	var source_player := _find_first(source, "AnimationPlayer") as AnimationPlayer
+	var source_animation := source_player.get_animation("motion")
+	var finger_targets: Array[StringName] = []
+	for target_name in Map.REQUIRED_TARGETS:
+		if (
+			String(target_name).contains("Thumb")
+			or String(target_name).contains("Index")
+			or String(target_name).contains("Middle")
+			or String(target_name).contains("Ring")
+			or String(target_name).contains("Little")
+		):
+			finger_targets.append(target_name)
+			var source_name: StringName = Map.source_for_target(target_name)
+			var track := _find_track(source_animation, source_name, Animation.TYPE_ROTATION_3D)
+			_check(track >= 0, "finger-rich fixture resolves %s" % source_name)
+			if track >= 0:
+				var base := source_animation.rotation_track_interpolate(track, SAMPLE_TIME)
+				source_animation.rotation_track_insert_key(
+					track,
+					SAMPLE_TIME,
+					(base * Quaternion(Vector3.RIGHT, 0.35)).normalized(),
+				)
+	_check(finger_targets.size() == 30, "finger-rich fixture exercises all 30 mapped finger joints")
+	source_player.clear_caches()
+	var motion: RefCounted = Baker.create_motion(source, target)
+	_check(motion != null, "finger-rich SOMA motion retargets")
+	if motion == null:
+		return
+	_validate_animation_data_transfer(source, motion.scene, finger_targets)
+	var output_player := _find_first(motion.scene, "AnimationPlayer") as AnimationPlayer
+	var output_animation := output_player.get_animation("motion")
+	var visibly_animated := 0
+	for target_name in finger_targets:
+		var track := _find_track(output_animation, target_name, Animation.TYPE_ROTATION_3D)
+		var start := output_animation.rotation_track_interpolate(track, 0.0)
+		var bent := output_animation.rotation_track_interpolate(track, SAMPLE_TIME)
+		if start.angle_to(bent) > 0.1:
+			visibly_animated += 1
+	_check(visibly_animated == 30, "all mapped humanoid fingers visibly leave their initial pose")
+	motion.scene.free()
+
+
+func _validate_animation_data_transfer(
+	source_root: Node, target_root: Node, target_names: Array[StringName]
+) -> void:
+	var source_skeleton := _find_first(source_root, "Skeleton3D") as Skeleton3D
+	var source_player := _find_first(source_root, "AnimationPlayer") as AnimationPlayer
+	var target_skeleton := _find_first(target_root, "Skeleton3D") as Skeleton3D
+	var target_player := _find_first(target_root, "AnimationPlayer") as AnimationPlayer
+	var source_globals := _sample_animation_globals(
+		source_skeleton, source_player.get_animation("motion"), SAMPLE_TIME
+	)
+	var target_globals := _sample_animation_globals(
+		target_skeleton, target_player.get_animation("motion"), SAMPLE_TIME
+	)
+	var source_rests := _global_rests(source_skeleton)
+	var target_rests := _global_rests(target_skeleton)
+	for target_name in target_names:
+		var source_index := source_skeleton.find_bone(Map.source_for_target(target_name))
+		var target_index := target_skeleton.find_bone(target_name)
+		var source_delta := source_globals[source_index].basis * source_rests[source_index].basis.inverse()
+		var corrected_rest := _direction_corrected_rest(
+			target_name, source_skeleton, source_rests, target_skeleton, target_rests
+		)
+		var target_delta := target_globals[target_index].basis * corrected_rest.inverse()
+		_check(
+			source_delta.get_rotation_quaternion().angle_to(
+				target_delta.get_rotation_quaternion()
+			) <= ROTATION_TOLERANCE,
+			"%s finger model-space delta transfers numerically" % target_name,
+		)
+
+
+func _sample_animation_globals(
+	skeleton: Skeleton3D, animation: Animation, time: float
+) -> Array[Transform3D]:
+	var tracks := {}
+	for track in animation.get_track_count():
+		var path := animation.track_get_path(track)
+		if path.get_subname_count() == 1:
+			tracks["%s:%d" % [path.get_subname(0), animation.track_get_type(track)]] = track
+	var globals: Array[Transform3D] = []
+	globals.resize(skeleton.get_bone_count())
+	for index in skeleton.get_bone_count():
+		var bone_name := skeleton.get_bone_name(index)
+		var rest := skeleton.get_bone_rest(index)
+		var position := rest.origin
+		var rotation := rest.basis.get_rotation_quaternion()
+		var position_key := "%s:%d" % [bone_name, Animation.TYPE_POSITION_3D]
+		var rotation_key := "%s:%d" % [bone_name, Animation.TYPE_ROTATION_3D]
+		if tracks.has(position_key):
+			position = animation.position_track_interpolate(tracks[position_key], time)
+		if tracks.has(rotation_key):
+			rotation = animation.rotation_track_interpolate(tracks[rotation_key], time)
+		var local := Transform3D(Basis(rotation), position)
+		var parent := skeleton.get_bone_parent(index)
+		globals[index] = local if parent < 0 else globals[parent] * local
+	return globals
 
 
 func _validate_fixture(skeleton: Skeleton3D) -> void:
@@ -113,15 +215,17 @@ func _validate_fixture(skeleton: Skeleton3D) -> void:
 
 func _validate_mapping(source: Skeleton3D, target: Skeleton3D) -> void:
 	_check(Map.validate(source, target).is_empty(), "explicit SOMA-77 humanoid mapping validates")
-	_check(Map.TARGET_TO_SOURCE.size() == 22, "22 body targets are mapped")
+	_check(Map.TARGET_TO_SOURCE.size() == 55, "all 55 humanoid profile targets are mapped")
 	var source_names := {}
 	for source_name in Map.TARGET_TO_SOURCE.values():
 		_check(not source_names.has(source_name), "source mapping is one-to-one: %s" % source_name)
 		source_names[source_name] = true
-	_check(Map.COLLAPSED_SOURCE_JOINTS == ["Neck1"], "collapsed neck joint is explicit")
-	_check(Map.IGNORED_FACE_JOINTS.size() == 4, "ignored face joints are explicit")
-	_check(Map.ignored_finger_joints().size() == 48, "all 48 SOMA finger joints are explicit")
-	_check(Map.IGNORED_TOE_END_JOINTS.size() == 2, "ignored toe-end joints are explicit")
+	_check(Map.COLLAPSED_SOURCE_JOINTS.size() == 9, "collapsed neck and palm joints are explicit")
+	_check(Map.IGNORED_TERMINAL_JOINTS.size() == 13, "all terminal joints are explicit")
+	_check(Map.source_dispositions().size() == 77, "all 77 SOMA joints have one disposition")
+	_check(Map.source_for_target("LeftIndexProximal") == "LeftHandIndex2", "index palm joint is collapsed")
+	_check(Map.source_for_target("RightThumbMetacarpal") == "RightHandThumb1", "thumb metacarpal is mapped")
+	_check(Map.source_for_target("Jaw") == "Jaw", "facial rotation targets are mapped")
 
 
 func _evaluate_engine_modifier(source: Skeleton3D) -> void:
@@ -161,8 +265,8 @@ func _validate_reloaded(
 	if animation == null:
 		return
 	_check(
-		animation.get_track_count() == 24,
-		"saved target has 22 rotations plus root and hips translations",
+		animation.get_track_count() == 57,
+		"saved target has 55 rotations plus root and hips translations",
 	)
 	_check(is_equal_approx(animation.length, 29.0 / 30.0), "saved target preserves duration")
 	var animated_bones := {}
@@ -184,8 +288,10 @@ func _validate_motion(source_root: Node, target_root: Node) -> void:
 	var source_player := _find_first(source_root, "AnimationPlayer") as AnimationPlayer
 	var target_skeleton := _find_first(target_root, "Skeleton3D") as Skeleton3D
 	var target_player := _find_first(target_root, "AnimationPlayer") as AnimationPlayer
+	source_player.stop()
 	source_player.play("motion")
 	source_player.seek(SAMPLE_TIME, true)
+	target_player.stop()
 	target_player.play("motion")
 	target_player.seek(SAMPLE_TIME, true)
 	source_skeleton.force_update_all_bone_transforms()

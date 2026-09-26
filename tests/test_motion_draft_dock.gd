@@ -95,14 +95,14 @@ func _run() -> void:
 	_check(dock._draft.selected_take_id == summaries[1]["take_id"], "selected take metadata updates")
 	_check(FileAccess.get_sha256(JENNY_PATH) == fixture_hash, "session generation never mutates Jenny")
 	var output_directory := "res://tests/.goal14_selected_take_%d" % OS.get_process_id()
-	var saved_scene := output_directory.path_join("selected_take.tscn")
 	var saved_library := output_directory.path_join("selected_take.res")
-	dock._preview_panel.submit_save_path(PreviewPanel.SaveKind.SOMA77, saved_scene)
-	_cleanup_paths.append(saved_scene)
+	dock._preview_panel.submit_save_path(PreviewPanel.SaveKind.SOMA77_ANIMATION, saved_library)
 	_cleanup_paths.append(saved_library)
-	_check(FileAccess.file_exists(saved_scene) and FileAccess.file_exists(saved_library), "selected take saves explicitly")
+	_check(FileAccess.file_exists(saved_library), "selected take saves explicitly")
 	for artifact in dock._draft.artifacts.values():
 		_check(artifact["take_id"] == summaries[1]["take_id"], "saved artifacts belong only to the selected take")
+		_check(artifact["rig_layer"] == "soma77", "saved artifact records its rig layer")
+		_check(artifact["artifact_form"] == "animation_library", "saved artifact records its form")
 
 	var session_path: String = dock._draft_path
 	(dock.find_child("SwitchSession", true, false) as Button).emit_signal("pressed")
@@ -127,7 +127,7 @@ func _run() -> void:
 	_check(dock._draft != null and dock._draft.prompt == prompt.text, "offline reopen restores intent")
 	_check(FileAccess.get_sha256(session_path) == before_open_hash, "opening a session does not dirty or rewrite it")
 	_check(dock._draft.active_take_summaries().size() == 2, "offline reopen restores summaries")
-	_check(dock._draft.artifacts.size() == 2, "offline reopen restores saved selected-take artifacts")
+	_check(dock._draft.artifacts.size() == 1, "offline reopen restores saved selected-take artifact")
 	_check(dock._take_set.is_empty(), "offline reopen does not invent transient payloads")
 	_check((dock.find_child("SaveSelectedTake", true, false) as Button).disabled, "save requires a live take")
 	_check(FileAccess.get_sha256(JENNY_PATH) == fixture_hash, "offline reopen leaves Jenny unchanged")

@@ -135,6 +135,38 @@ static func save_motion(
 	}
 
 
+static func save_library(
+	retargeted_root: Node,
+	output_directory: String,
+	requested_stem: String = "kimodo_humanoid_motion",
+) -> Dictionary:
+	var source_player := _find_first(retargeted_root, "AnimationPlayer") as AnimationPlayer
+	if source_player == null or not source_player.has_animation(ANIMATION_NAME):
+		push_error("Cannot save humanoid animation without animation '%s'" % ANIMATION_NAME)
+		return {}
+	var directory_result := ProjectPaths.ensure_directory(output_directory)
+	if not directory_result["ok"]:
+		push_error(directory_result["message"])
+		return {}
+	output_directory = directory_result["path"]
+	var stem := _unique_library_stem(output_directory, requested_stem)
+	var library_path := output_directory.path_join(stem + ".res")
+	var library := AnimationLibrary.new()
+	var animation := source_player.get_animation(ANIMATION_NAME).duplicate(true) as Animation
+	if library.add_animation(ANIMATION_NAME, animation) != OK:
+		push_error("Cannot add humanoid motion to its AnimationLibrary")
+		return {}
+	if ResourceSaver.save(library, library_path) != OK:
+		push_error("Cannot save humanoid AnimationLibrary: %s" % library_path)
+		return {}
+	return {
+		"stem": stem,
+		"library_path": library_path,
+		"animation_name": ANIMATION_NAME,
+		"mapped_bone_count": MAP.REQUIRED_TARGETS.size(),
+	}
+
+
 static func _create_output_root(target_template: Skeleton3D, animation: Animation) -> Node3D:
 	var output_root := Node3D.new()
 	output_root.name = "HumanoidMotion"
@@ -361,6 +393,18 @@ static func _unique_stem(directory: String, requested: String) -> String:
 		FileAccess.file_exists(directory.path_join(candidate + ".res"))
 		or FileAccess.file_exists(directory.path_join(candidate + ".tscn"))
 	):
+		candidate = "%s_%d" % [clean, suffix]
+		suffix += 1
+	return candidate
+
+
+static func _unique_library_stem(directory: String, requested: String) -> String:
+	var clean := requested.validate_filename().strip_edges()
+	if clean.is_empty():
+		clean = "kimodo_humanoid_motion"
+	var candidate := clean
+	var suffix := 2
+	while FileAccess.file_exists(directory.path_join(candidate + ".res")):
 		candidate = "%s_%d" % [clean, suffix]
 		suffix += 1
 	return candidate

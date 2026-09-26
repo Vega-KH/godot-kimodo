@@ -54,17 +54,17 @@ func _run() -> void:
 	)
 
 	preview.set_save_availability(true, false, false, false)
-	preview.save_kind.select(PreviewPanel.SaveKind.SOMA77)
-	preview.save_kind.emit_signal("item_selected", PreviewPanel.SaveKind.SOMA77)
+	preview.save_kind.select(PreviewPanel.SaveKind.SOMA77_ANIMATION)
+	preview.save_kind.emit_signal("item_selected", PreviewPanel.SaveKind.SOMA77_ANIMATION)
 	_check(not preview.save_button.disabled, "save state follows the selected output type")
 	var selected_save := [-1, ""]
 	preview.save_path_selected.connect(func(kind: int, path: String) -> void:
 		selected_save[0] = kind
 		selected_save[1] = path
 	)
-	preview.submit_save_path(PreviewPanel.SaveKind.SOMA77, "res://tests/take.tscn")
+	preview.submit_save_path(PreviewPanel.SaveKind.SOMA77_ANIMATION, "res://tests/take.res")
 	_check(
-		selected_save == [PreviewPanel.SaveKind.SOMA77, "res://tests/take.tscn"],
+		selected_save == [PreviewPanel.SaveKind.SOMA77_ANIMATION, "res://tests/take.res"],
 		"preview panel emits one typed save-path request",
 	)
 

@@ -64,7 +64,7 @@ func _run() -> void:
 	_check(character.has_motion(), "character preview owns a retargeted scene")
 	_check(character.skeleton().get_bone_count() == 61, "character preview retains Jenny's rig")
 	_check(_skinned_mesh_count(character.motion_scene()) == 8, "character preview retains all skins")
-	_check(_animation(character).get_track_count() == 24, "character preview has editable body tracks")
+	_check(_animation(character).get_track_count() == 54, "character preview has full supported tracks")
 	_check(selector.visible and selector.selected == 2, "character preview is selected")
 	_check(not selector.is_item_disabled(2), "character preview choice enables with motion")
 	_check(character.visible and not source.visible and not humanoid.visible, "only selected preview is visible")
@@ -90,13 +90,39 @@ func _run() -> void:
 	var relative_directory := "res://tests/.goal12_%d_%d" % [
 		OS.get_process_id(), Time.get_ticks_usec()
 	]
-	var first_scene := relative_directory.path_join("jenny generated walk.tscn")
-	dock._preview_panel.submit_save_path(PreviewPanel.SaveKind.CHARACTER, first_scene)
+	var character_library_path := relative_directory.path_join("jenny generated walk.res")
+	dock._preview_panel.submit_save_path(
+		PreviewPanel.SaveKind.CHARACTER_ANIMATION, character_library_path
+	)
 	var save_status := dock.find_child("TakeSaveStatus", true, false) as Label
+	_check(FileAccess.file_exists(character_library_path), "character AnimationLibrary is saved")
+	_check(
+		ResourceLoader.get_dependencies(character_library_path).is_empty(),
+		"character AnimationLibrary has no mesh or texture dependencies",
+	)
+	var character_library := ResourceLoader.load(
+		character_library_path, "AnimationLibrary", ResourceLoader.CACHE_MODE_IGNORE
+	) as AnimationLibrary
+	_compare_animations(preview_animation, character_library.get_animation("motion"))
+	var fresh_character := JENNY_SCENE.instantiate() as Node3D
+	root.add_child(fresh_character)
+	var fresh_player := AnimationPlayer.new()
+	fresh_player.name = "LoadedKimodoAnimation"
+	fresh_character.add_child(fresh_player)
+	_check(
+		fresh_player.add_animation_library("", character_library) == OK,
+		"character library attaches to a fresh Jenny instance",
+	)
+	fresh_player.play("motion")
+	fresh_player.seek(0.5, true)
+	_check(fresh_player.is_playing(), "character library plays on a fresh Jenny instance")
+	fresh_character.queue_free()
+	var first_scene := relative_directory.path_join("jenny generated walk.tscn")
+	dock._preview_panel.submit_save_path(PreviewPanel.SaveKind.CHARACTER_PREVIEW, first_scene)
 	_check(FileAccess.file_exists(first_scene), "character scene is saved")
 	_check(save_status.text.contains(first_scene), "character output path is reported")
 	_check(character.motion_scene() == preview_scene, "save preserves live preview ownership")
-	dock._preview_panel.submit_save_path(PreviewPanel.SaveKind.CHARACTER, first_scene)
+	dock._preview_panel.submit_save_path(PreviewPanel.SaveKind.CHARACTER_PREVIEW, first_scene)
 	_check(save_status.text.contains("never overwrites"), "duplicate character save is rejected")
 	_check(FileAccess.get_sha256(JENNY_PATH) == fixture_hash, "saving does not modify Jenny")
 
@@ -112,6 +138,14 @@ func _run() -> void:
 	_check(saved_player.has_animation("motion"), "saved character exposes editable motion")
 	_compare_animations(preview_animation, saved_player.get_animation("motion"))
 	_check(ResourceLoader.get_dependencies(first_scene).is_empty(), "saved character is self-contained")
+	var library_file := FileAccess.open(character_library_path, FileAccess.READ)
+	var preview_file := FileAccess.open(first_scene, FileAccess.READ)
+	_check(
+		library_file.get_length() * 10 < preview_file.get_length(),
+		"character AnimationLibrary is substantially smaller than the preview scene",
+	)
+	library_file.close()
+	preview_file.close()
 
 	var old_character_scene: Node = character.motion_scene()
 	clear.emit_signal("pressed")

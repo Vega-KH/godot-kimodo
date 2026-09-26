@@ -32,8 +32,8 @@ func _run() -> void:
 		return
 	var preview: Control = dock.find_child("MotionPreview", true, false)
 	_check(preview.set_motion(parsed["motion"]), "validated motion enters preview")
-	save_type.select(PreviewPanel.SaveKind.SOMA77)
-	save_type.emit_signal("item_selected", PreviewPanel.SaveKind.SOMA77)
+	save_type.select(PreviewPanel.SaveKind.SOMA77_ANIMATION)
+	save_type.emit_signal("item_selected", PreviewPanel.SaveKind.SOMA77_ANIMATION)
 	dock._update_save_availability()
 	_check(not save_button.disabled, "save enables for a validated preview")
 	var preview_scene: Node = preview.motion_scene()
@@ -43,38 +43,30 @@ func _run() -> void:
 	var relative_directory := "res://tests/.goal8_%d_%d" % [
 		OS.get_process_id(), Time.get_ticks_usec()
 	]
-	var first_scene_path := relative_directory.path_join("combat preview.tscn")
 	var first_library_path := relative_directory.path_join("combat preview.res")
-	dock._preview_panel.submit_save_path(PreviewPanel.SaveKind.SOMA77, first_scene_path)
+	dock._preview_panel.submit_save_path(PreviewPanel.SaveKind.SOMA77_ANIMATION, first_library_path)
 	var status := dock.find_child("TakeSaveStatus", true, false) as Label
-	_check(FileAccess.file_exists(first_scene_path), "native scene is saved")
 	_check(FileAccess.file_exists(first_library_path), "native animation library is saved")
-	_check(status.text.contains(first_scene_path), "actual native paths are reported")
+	_check(status.text.contains(first_library_path), "actual native path is reported")
 	_check(preview.motion_scene() == preview_scene, "saving does not replace the active preview")
 	_check(is_instance_valid(preview_scene), "saving does not transfer preview ownership")
 
-	dock._preview_panel.submit_save_path(PreviewPanel.SaveKind.SOMA77, first_scene_path)
+	dock._preview_panel.submit_save_path(PreviewPanel.SaveKind.SOMA77_ANIMATION, first_library_path)
 	_check(status.text.contains("never overwrites"), "duplicate save is rejected")
 
-	var packed := ResourceLoader.load(
-		first_scene_path, "PackedScene", ResourceLoader.CACHE_MODE_IGNORE
-	) as PackedScene
-	var saved_scene := packed.instantiate()
-	root.add_child(saved_scene)
-	var saved_player := _find_first(saved_scene, "AnimationPlayer") as AnimationPlayer
-	var saved_animation := saved_player.get_animation("motion")
+	var saved_library := ResourceLoader.load(
+		first_library_path, "AnimationLibrary", ResourceLoader.CACHE_MODE_IGNORE
+	) as AnimationLibrary
+	var saved_animation := saved_library.get_animation("motion")
 	_compare_animations(preview_animation, saved_animation)
-	var scene_text := FileAccess.get_file_as_string(first_scene_path)
-	_check(not scene_text.contains(".gltf"), "saved scene has no glTF dependency")
-	_check(not scene_text.contains("addons/"), "saved scene has no addon dependency")
+	_check(ResourceLoader.get_dependencies(first_library_path).is_empty(), "native library has no external dependencies")
 
 	dock._preview_panel.submit_save_path(
-		PreviewPanel.SaveKind.SOMA77, "user://not-project-relative.tscn"
+		PreviewPanel.SaveKind.SOMA77_ANIMATION, "user://not-project-relative.res"
 	)
 	_check(status.text.contains("res://"), "non-project-relative destination is rejected")
 	_check(preview.motion_scene() == preview_scene, "save failure leaves preview intact")
 
-	saved_scene.queue_free()
 	dock.queue_free()
 	await process_frame
 	_remove_test_directory(relative_directory)

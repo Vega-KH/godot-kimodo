@@ -6,9 +6,10 @@ signal take_activated(index: int)
 signal save_path_selected(kind: int, path: String)
 
 enum SaveKind {
-	CHARACTER,
-	HUMANOID,
-	SOMA77,
+	CHARACTER_ANIMATION,
+	HUMANOID_ANIMATION,
+	SOMA77_ANIMATION,
+	CHARACTER_PREVIEW,
 }
 
 const Preview := preload("res://addons/kimodo_motion/ui/soma77_preview.gd")
@@ -185,9 +186,10 @@ func set_save_availability(
 ) -> void:
 	if save_kind == null:
 		return
-	save_kind.set_item_disabled(SaveKind.CHARACTER, generating or not character_ready)
-	save_kind.set_item_disabled(SaveKind.HUMANOID, generating or not humanoid_ready)
-	save_kind.set_item_disabled(SaveKind.SOMA77, generating or not source_ready)
+	save_kind.set_item_disabled(SaveKind.CHARACTER_ANIMATION, generating or not character_ready)
+	save_kind.set_item_disabled(SaveKind.HUMANOID_ANIMATION, generating or not humanoid_ready)
+	save_kind.set_item_disabled(SaveKind.SOMA77_ANIMATION, generating or not source_ready)
+	save_kind.set_item_disabled(SaveKind.CHARACTER_PREVIEW, generating or not character_ready)
 	_update_save_button()
 
 
@@ -310,11 +312,12 @@ func _build() -> void:
 	add_child(save_row)
 	save_kind = OptionButton.new()
 	save_kind.name = "SaveTakeType"
-	save_kind.add_item("Character take", SaveKind.CHARACTER)
-	save_kind.add_item("Humanoid take", SaveKind.HUMANOID)
-	save_kind.add_item("SOMA-77 native take", SaveKind.SOMA77)
+	save_kind.add_item("Character animation", SaveKind.CHARACTER_ANIMATION)
+	save_kind.add_item("Humanoid animation", SaveKind.HUMANOID_ANIMATION)
+	save_kind.add_item("SOMA-77 animation", SaveKind.SOMA77_ANIMATION)
+	save_kind.add_item("Character Preview", SaveKind.CHARACTER_PREVIEW)
 	save_kind.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	save_kind.item_selected.connect(func(_index: int) -> void: _update_save_button())
+	save_kind.item_selected.connect(_on_save_kind_selected)
 	save_row.add_child(save_kind)
 	save_button = Button.new()
 	save_button.name = "SaveSelectedTake"
@@ -332,7 +335,7 @@ func _build() -> void:
 	save_dialog.name = "TakeSaveDialog"
 	save_dialog.access = FileDialog.ACCESS_RESOURCES
 	save_dialog.file_mode = FileDialog.FILE_MODE_SAVE_FILE
-	save_dialog.filters = PackedStringArray(["*.tscn ; Godot scene"])
+	save_dialog.filters = PackedStringArray(["*.res ; Godot AnimationLibrary"])
 	save_dialog.file_selected.connect(_on_file_selected)
 	add_child(save_dialog)
 
@@ -416,13 +419,22 @@ func _update_save_button() -> void:
 	save_button.disabled = index < 0 or save_kind.is_item_disabled(index)
 
 
+func _on_save_kind_selected(_index: int) -> void:
+	clear_save_status()
+	_update_save_button()
+
+
 func _open_save_dialog() -> void:
 	var kind := save_kind.get_selected_id()
-	var default_name := "kimodo_character_motion.tscn"
-	if kind == SaveKind.HUMANOID:
-		default_name = "kimodo_humanoid_motion.tscn"
-	elif kind == SaveKind.SOMA77:
-		default_name = "kimodo_motion.tscn"
+	var default_name := "kimodo_character_motion.res"
+	save_dialog.filters = PackedStringArray(["*.res ; Godot AnimationLibrary"])
+	if kind == SaveKind.HUMANOID_ANIMATION:
+		default_name = "kimodo_humanoid_motion.res"
+	elif kind == SaveKind.SOMA77_ANIMATION:
+		default_name = "kimodo_soma77_motion.res"
+	elif kind == SaveKind.CHARACTER_PREVIEW:
+		default_name = "kimodo_character_preview.tscn"
+		save_dialog.filters = PackedStringArray(["*.tscn ; Godot scene"])
 	var preferred_directory := "res://animations/kimodo"
 	if not DirAccess.dir_exists_absolute(ProjectSettings.globalize_path(preferred_directory)):
 		preferred_directory = "res://"

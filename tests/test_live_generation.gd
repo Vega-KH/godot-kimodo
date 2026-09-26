@@ -113,17 +113,15 @@ func _run() -> void:
 		output.store_buffer(generation.last_response_bytes)
 		output.close()
 	if not native_directory.is_empty():
-		var scene_path := native_directory.path_join(native_name + ".tscn")
 		var library_path := native_directory.path_join(native_name + ".res")
-		dock._preview_panel.submit_save_path(PreviewPanel.SaveKind.SOMA77, scene_path)
-		if not FileAccess.file_exists(scene_path) or not FileAccess.file_exists(library_path):
+		dock._preview_panel.submit_save_path(PreviewPanel.SaveKind.SOMA77_ANIMATION, library_path)
+		if not FileAccess.file_exists(library_path):
 			_fail("live preview did not save native assets")
 			return
 	if not humanoid_directory.is_empty():
-		var humanoid_scene := humanoid_directory.path_join(humanoid_name + ".tscn")
 		var humanoid_library := humanoid_directory.path_join(humanoid_name + ".res")
-		dock._preview_panel.submit_save_path(PreviewPanel.SaveKind.HUMANOID, humanoid_scene)
-		if not FileAccess.file_exists(humanoid_scene) or not FileAccess.file_exists(humanoid_library):
+		dock._preview_panel.submit_save_path(PreviewPanel.SaveKind.HUMANOID_ANIMATION, humanoid_library)
+		if not FileAccess.file_exists(humanoid_library):
 			_fail("live humanoid preview did not save native assets")
 			return
 	print(

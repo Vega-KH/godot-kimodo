@@ -6,6 +6,9 @@ const Baker := preload(
 const HumanoidMap := preload(
 	"res://addons/kimodo_motion/retargeting/soma77_humanoid_map.gd"
 )
+const RigProfile := preload(
+	"res://addons/kimodo_motion/retargeting/humanoid_rig_profile.gd"
+)
 const SOURCE_SCENE := preload(
 	"res://tests/retargeting/generated/soma77_walk_humanoid.tscn"
 )
@@ -34,6 +37,11 @@ func _run() -> void:
 	var source_player := _find_first(source, "AnimationPlayer") as AnimationPlayer
 	source_player.play("motion")
 	var target_skeleton := _find_first(character, "Skeleton3D") as Skeleton3D
+	var profile_result := RigProfile.exact_names(
+		target_skeleton, character.get_path_to(target_skeleton)
+	)
+	var rig_profile: RefCounted = profile_result["profile"] if profile_result["ok"] else null
+	_check(profile_result["ok"], "Jenny builds an explicit exact-name rig profile")
 	var target_rests := _bone_rests(target_skeleton)
 	var mesh_summary := _mesh_summary(character)
 	_check(target_skeleton.get_bone_count() == 61, "root-bearing Jenny has 61 bones")
@@ -79,6 +87,32 @@ func _run() -> void:
 		"reserved animation ownership is rejected",
 	)
 	reserved_player.free()
+	var renamed_character := JENNY_SCENE.instantiate() as Node3D
+	var renamed_skeleton := _find_first(renamed_character, "Skeleton3D") as Skeleton3D
+	var renamed_index := renamed_skeleton.find_bone("LeftHand")
+	renamed_skeleton.set_bone_name(renamed_index, "CustomLeftHand")
+	var renamed_mapping: Dictionary = rig_profile.canonical_to_target.duplicate(true)
+	renamed_mapping["LeftHand"] = "CustomLeftHand"
+	var renamed_profile_result := RigProfile.create(
+		renamed_mapping,
+		renamed_character.get_path_to(renamed_skeleton),
+		renamed_skeleton,
+	)
+	_check(renamed_profile_result["ok"], "a profile can map canonical semantics to renamed bones")
+	var renamed_motion: RefCounted = Baker.create_motion(
+		source, renamed_character, renamed_profile_result["profile"]
+	)
+	_check(renamed_motion != null, "retargeting accepts a non-Jenny-specific bone mapping")
+	if renamed_motion != null:
+		_check(
+			_find_track(
+				renamed_motion.player.get_animation("motion"),
+				"CustomLeftHand",
+				Animation.TYPE_ROTATION_3D,
+			) >= 0,
+			"renamed target receives the canonical LeftHand animation",
+		)
+		renamed_motion.scene.free()
 
 	var motion: RefCounted = Baker.create_motion(source, character)
 	_check(motion != null, "humanoid motion retargets to the skinned character")
@@ -87,13 +121,13 @@ func _run() -> void:
 		return
 	var target_player: AnimationPlayer = motion.player
 	var animation := target_player.get_animation("motion")
-	_check(animation.get_track_count() == 24, "character motion has 24 explicit tracks")
+	_check(animation.get_track_count() == 54, "character motion has 52 rotations plus root and hips tracks")
 	_check(is_equal_approx(animation.length, 29.0 / 30.0), "character duration is preserved")
 	_check(_bone_rests(target_skeleton) == target_rests, "retargeting preserves Jenny rest data")
 	_check(_mesh_summary(character) == mesh_summary, "retargeting preserves mesh and skin data")
-	_validate_tracks(animation, character.get_path_to(target_skeleton))
+	_validate_tracks(animation, character.get_path_to(target_skeleton), rig_profile)
 	_validate_model_space_deltas(
-		source_skeleton, source_player, target_skeleton, target_player
+		source_skeleton, source_player, target_skeleton, target_player, rig_profile
 	)
 	_validate_root_motion(source_player, target_player)
 
@@ -134,8 +168,10 @@ func _run() -> void:
 	_finish()
 
 
-func _validate_tracks(animation: Animation, skeleton_path: NodePath) -> void:
-	var required := HumanoidMap.REQUIRED_TARGETS.duplicate()
+func _validate_tracks(
+	animation: Animation, skeleton_path: NodePath, rig_profile: RefCounted
+) -> void:
+	var required: Array[StringName] = rig_profile.rotation_targets()
 	required.append_array(["Root", "Hips"])
 	for track in animation.get_track_count():
 		var path := animation.track_get_path(track)
@@ -168,6 +204,7 @@ func _validate_model_space_deltas(
 	source_player: AnimationPlayer,
 	target_skeleton: Skeleton3D,
 	target_player: AnimationPlayer,
+	rig_profile: RefCounted,
 ) -> void:
 	var source_rests := _global_rests(source_skeleton)
 	var target_rests := _global_rests(target_skeleton)
@@ -175,7 +212,7 @@ func _validate_model_space_deltas(
 	for time in SAMPLE_TIMES:
 		source_player.seek(time, true)
 		target_player.seek(time, true)
-		for bone_name in HumanoidMap.REQUIRED_TARGETS:
+		for bone_name in rig_profile.rotation_targets():
 			var source_index := source_skeleton.find_bone(bone_name)
 			var target_index := target_skeleton.find_bone(bone_name)
 			var source_delta := (

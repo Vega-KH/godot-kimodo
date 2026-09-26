@@ -66,7 +66,11 @@ func _run() -> void:
 		_check(diffusion_steps.value == 100, "denoising control starts at the quality default")
 		_check(diffusion_steps.max_value == 200, "denoising control permits up to 200 steps")
 		_check(save_action.disabled, "save is disabled without a validated preview")
-		_check(save_type.get_item_text(0) == "Character take", "character output is the default")
+		_check(save_type.item_count == 4, "save menu has four focused output choices")
+		_check(save_type.get_item_text(0) == "Character animation", "character animation is the default")
+		_check(save_type.get_item_text(1) == "Humanoid animation", "humanoid animation is available")
+		_check(save_type.get_item_text(2) == "SOMA-77 animation", "SOMA-77 animation is available")
+		_check(save_type.get_item_text(3) == "Character Preview", "character preview is available")
 		_check(save_type.is_item_disabled(0), "character output waits for conversion")
 		_check(not preview_selection.visible, "preview selection is hidden before retargeting")
 

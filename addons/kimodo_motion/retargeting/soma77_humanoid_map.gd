@@ -10,14 +10,47 @@ const TARGET_TO_SOURCE := {
 	"UpperChest": "Chest",
 	"Neck": "Neck2",
 	"Head": "Head",
+	"LeftEye": "LeftEye",
+	"RightEye": "RightEye",
+	"Jaw": "Jaw",
 	"LeftShoulder": "LeftShoulder",
 	"LeftUpperArm": "LeftArm",
 	"LeftLowerArm": "LeftForeArm",
 	"LeftHand": "LeftHand",
+	"LeftThumbMetacarpal": "LeftHandThumb1",
+	"LeftThumbProximal": "LeftHandThumb2",
+	"LeftThumbDistal": "LeftHandThumb3",
+	"LeftIndexProximal": "LeftHandIndex2",
+	"LeftIndexIntermediate": "LeftHandIndex3",
+	"LeftIndexDistal": "LeftHandIndex4",
+	"LeftMiddleProximal": "LeftHandMiddle2",
+	"LeftMiddleIntermediate": "LeftHandMiddle3",
+	"LeftMiddleDistal": "LeftHandMiddle4",
+	"LeftRingProximal": "LeftHandRing2",
+	"LeftRingIntermediate": "LeftHandRing3",
+	"LeftRingDistal": "LeftHandRing4",
+	"LeftLittleProximal": "LeftHandPinky2",
+	"LeftLittleIntermediate": "LeftHandPinky3",
+	"LeftLittleDistal": "LeftHandPinky4",
 	"RightShoulder": "RightShoulder",
 	"RightUpperArm": "RightArm",
 	"RightLowerArm": "RightForeArm",
 	"RightHand": "RightHand",
+	"RightThumbMetacarpal": "RightHandThumb1",
+	"RightThumbProximal": "RightHandThumb2",
+	"RightThumbDistal": "RightHandThumb3",
+	"RightIndexProximal": "RightHandIndex2",
+	"RightIndexIntermediate": "RightHandIndex3",
+	"RightIndexDistal": "RightHandIndex4",
+	"RightMiddleProximal": "RightHandMiddle2",
+	"RightMiddleIntermediate": "RightHandMiddle3",
+	"RightMiddleDistal": "RightHandMiddle4",
+	"RightRingProximal": "RightHandRing2",
+	"RightRingIntermediate": "RightHandRing3",
+	"RightRingDistal": "RightHandRing4",
+	"RightLittleProximal": "RightHandPinky2",
+	"RightLittleIntermediate": "RightHandPinky3",
+	"RightLittleDistal": "RightHandPinky4",
 	"LeftUpperLeg": "LeftLeg",
 	"LeftLowerLeg": "LeftShin",
 	"LeftFoot": "LeftFoot",
@@ -30,8 +63,19 @@ const TARGET_TO_SOURCE := {
 
 const REQUIRED_TARGETS := [
 	"Hips", "Spine", "Chest", "UpperChest", "Neck", "Head",
+	"LeftEye", "RightEye", "Jaw",
 	"LeftShoulder", "LeftUpperArm", "LeftLowerArm", "LeftHand",
+	"LeftThumbMetacarpal", "LeftThumbProximal", "LeftThumbDistal",
+	"LeftIndexProximal", "LeftIndexIntermediate", "LeftIndexDistal",
+	"LeftMiddleProximal", "LeftMiddleIntermediate", "LeftMiddleDistal",
+	"LeftRingProximal", "LeftRingIntermediate", "LeftRingDistal",
+	"LeftLittleProximal", "LeftLittleIntermediate", "LeftLittleDistal",
 	"RightShoulder", "RightUpperArm", "RightLowerArm", "RightHand",
+	"RightThumbMetacarpal", "RightThumbProximal", "RightThumbDistal",
+	"RightIndexProximal", "RightIndexIntermediate", "RightIndexDistal",
+	"RightMiddleProximal", "RightMiddleIntermediate", "RightMiddleDistal",
+	"RightRingProximal", "RightRingIntermediate", "RightRingDistal",
+	"RightLittleProximal", "RightLittleIntermediate", "RightLittleDistal",
 	"LeftUpperLeg", "LeftLowerLeg", "LeftFoot", "LeftToes",
 	"RightUpperLeg", "RightLowerLeg", "RightFoot", "RightToes",
 ]
@@ -49,9 +93,29 @@ const DIRECTION_CHILDREN := {
 	"LeftShoulder": "LeftUpperArm",
 	"LeftUpperArm": "LeftLowerArm",
 	"LeftLowerArm": "LeftHand",
+	"LeftThumbMetacarpal": "LeftThumbProximal",
+	"LeftThumbProximal": "LeftThumbDistal",
+	"LeftIndexProximal": "LeftIndexIntermediate",
+	"LeftIndexIntermediate": "LeftIndexDistal",
+	"LeftMiddleProximal": "LeftMiddleIntermediate",
+	"LeftMiddleIntermediate": "LeftMiddleDistal",
+	"LeftRingProximal": "LeftRingIntermediate",
+	"LeftRingIntermediate": "LeftRingDistal",
+	"LeftLittleProximal": "LeftLittleIntermediate",
+	"LeftLittleIntermediate": "LeftLittleDistal",
 	"RightShoulder": "RightUpperArm",
 	"RightUpperArm": "RightLowerArm",
 	"RightLowerArm": "RightHand",
+	"RightThumbMetacarpal": "RightThumbProximal",
+	"RightThumbProximal": "RightThumbDistal",
+	"RightIndexProximal": "RightIndexIntermediate",
+	"RightIndexIntermediate": "RightIndexDistal",
+	"RightMiddleProximal": "RightMiddleIntermediate",
+	"RightMiddleIntermediate": "RightMiddleDistal",
+	"RightRingProximal": "RightRingIntermediate",
+	"RightRingIntermediate": "RightRingDistal",
+	"RightLittleProximal": "RightLittleIntermediate",
+	"RightLittleIntermediate": "RightLittleDistal",
 	"LeftUpperLeg": "LeftLowerLeg",
 	"LeftLowerLeg": "LeftFoot",
 	"LeftFoot": "LeftToes",
@@ -66,17 +130,19 @@ const DIRECTION_SOURCE_CHILD_OVERRIDES := {
 	"UpperChest": "Neck1",
 }
 
-const COLLAPSED_SOURCE_JOINTS := ["Neck1"]
-const IGNORED_FACE_JOINTS := ["HeadEnd", "Jaw", "LeftEye", "RightEye"]
-const IGNORED_TOE_END_JOINTS := ["LeftToeEnd", "RightToeEnd"]
-
-
-static func ignored_finger_joints() -> Array[String]:
-	var ignored: Array[String] = []
-	for name in Soma77Contract.JOINT_NAMES:
-		if String(name).contains("Hand") and not String(name).ends_with("Hand"):
-			ignored.append(name)
-	return ignored
+const COLLAPSED_SOURCE_JOINTS := [
+	"Neck1",
+	"LeftHandIndex1", "LeftHandMiddle1", "LeftHandRing1", "LeftHandPinky1",
+	"RightHandIndex1", "RightHandMiddle1", "RightHandRing1", "RightHandPinky1",
+]
+const IGNORED_TERMINAL_JOINTS := [
+	"HeadEnd",
+	"LeftHandThumbEnd", "LeftHandIndexEnd", "LeftHandMiddleEnd",
+	"LeftHandRingEnd", "LeftHandPinkyEnd",
+	"RightHandThumbEnd", "RightHandIndexEnd", "RightHandMiddleEnd",
+	"RightHandRingEnd", "RightHandPinkyEnd",
+	"LeftToeEnd", "RightToeEnd",
+]
 
 
 static func source_for_target(target_name: StringName) -> StringName:
@@ -93,6 +159,17 @@ static func source_direction_child_for_target(target_name: StringName) -> String
 	return source_for_target(direction_child_for_target(target_name))
 
 
+static func source_dispositions() -> Dictionary:
+	var dispositions := {}
+	for target_name in REQUIRED_TARGETS:
+		dispositions[String(source_for_target(target_name))] = "mapped:%s" % target_name
+	for source_name in COLLAPSED_SOURCE_JOINTS:
+		dispositions[source_name] = "collapsed"
+	for source_name in IGNORED_TERMINAL_JOINTS:
+		dispositions[source_name] = "terminal"
+	return dispositions
+
+
 static func validate(source: Skeleton3D, target: Skeleton3D) -> String:
 	if source == null or target == null:
 		return "Retargeting requires source and target Skeleton3D nodes"
@@ -107,4 +184,10 @@ static func validate(source: Skeleton3D, target: Skeleton3D) -> String:
 			return "Target humanoid is missing required bone %s" % target_name
 		if source.find_bone(source_name) < 0:
 			return "SOMA-77 source is missing mapped bone %s" % source_name
+	var dispositions := source_dispositions()
+	if dispositions.size() != Soma77Contract.JOINT_NAMES.size():
+		return "SOMA-77 profile must account for all 77 source joints"
+	for source_name in Soma77Contract.JOINT_NAMES:
+		if not dispositions.has(String(source_name)):
+			return "SOMA-77 profile does not account for source joint %s" % source_name
 	return ""

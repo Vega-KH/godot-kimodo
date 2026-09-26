@@ -908,81 +908,97 @@ func _set_character_error(message: String) -> void:
 
 
 func _on_save_path_selected(kind: int, requested_path: String) -> void:
-	var validation := ProjectPaths.validate_file(requested_path, "tscn")
+	var extension := (
+		"tscn" if kind == PreviewSavePanel.SaveKind.CHARACTER_PREVIEW else "res"
+	)
+	var validation := ProjectPaths.validate_file(requested_path, extension)
 	if not validation["ok"]:
 		_set_save_error(validation["message"])
 		return
-	var scene_path: String = validation["path"]
-	var directory := scene_path.get_base_dir()
-	var take_name := scene_path.get_file().get_basename().strip_edges()
+	var output_path: String = validation["path"]
+	var directory := output_path.get_base_dir()
+	var take_name := output_path.get_file().get_basename().strip_edges()
 	if take_name.is_empty():
 		_set_save_error("Choose a non-empty filename.")
 		return
-	var companion_path := directory.path_join(take_name + ".res")
-	if FileAccess.file_exists(scene_path) or (
-		kind != PreviewSavePanel.SaveKind.CHARACTER
-		and FileAccess.file_exists(companion_path)
-	):
-		_set_save_error("Choose a new filename; Kimodo never overwrites an existing animation.")
+	if FileAccess.file_exists(output_path):
+		_set_save_error("Choose a new filename; Kimodo never overwrites an existing output.")
 		return
-	if kind == PreviewSavePanel.SaveKind.CHARACTER:
-		_save_character_take(directory, take_name)
-	elif kind == PreviewSavePanel.SaveKind.HUMANOID:
-		_save_humanoid_take(directory, take_name)
-	elif kind == PreviewSavePanel.SaveKind.SOMA77:
-		_save_soma77_take(directory, take_name)
+	if kind == PreviewSavePanel.SaveKind.CHARACTER_ANIMATION:
+		_save_character_animation(directory, take_name)
+	elif kind == PreviewSavePanel.SaveKind.HUMANOID_ANIMATION:
+		_save_humanoid_animation(directory, take_name)
+	elif kind == PreviewSavePanel.SaveKind.SOMA77_ANIMATION:
+		_save_soma77_animation(directory, take_name)
+	elif kind == PreviewSavePanel.SaveKind.CHARACTER_PREVIEW:
+		_save_character_preview(directory, take_name)
 	else:
 		_set_save_error("Choose a supported output type.")
 
 
-func _save_character_take(directory: String, take_name: String) -> void:
+func _save_character_animation(directory: String, take_name: String) -> void:
 	if not _preview_panel.has_character():
-		_set_save_error("There is no converted character take to save.")
+		_set_save_error("There is no converted character animation to save.")
 		return
-	var result := HumanoidCharacterBaker.save_motion(
+	var result := HumanoidCharacterBaker.save_library(
 		_character_preview.motion_scene(), directory, take_name
 	)
 	if result.is_empty():
-		_set_save_error("Godot could not save the character take.")
+		_set_save_error("Godot could not save the character animation.")
 		return
 	_preview_panel.show_save_result(
-		"Saved %s with animation '%s'." % [result["scene_path"], result["animation_name"]]
+		"Saved %s with animation '%s'." % [result["library_path"], result["animation_name"]]
 	)
-	_record_draft_artifact("character_scene", result["scene_path"])
-	_refresh_saved_resource(result["scene_path"])
+	_record_draft_artifact("character_animation", result["library_path"])
+	_refresh_saved_resource(result["library_path"])
 
 
-func _save_humanoid_take(directory: String, take_name: String) -> void:
+func _save_humanoid_animation(directory: String, take_name: String) -> void:
 	if not _preview_panel.has_humanoid():
 		_set_save_error("There is no converted humanoid take to save.")
 		return
-	var result := HumanoidRetargetBaker.save_motion(
+	var result := HumanoidRetargetBaker.save_library(
 		_humanoid_preview.motion_scene(), directory, take_name
 	)
 	if result.is_empty():
 		_set_save_error("Godot could not save the humanoid take.")
 		return
 	_preview_panel.show_save_result(
-		"Saved %s and %s" % [result["scene_path"], result["library_path"]]
+		"Saved %s" % result["library_path"]
 	)
-	_record_draft_artifact("humanoid_scene", result["scene_path"])
-	_record_draft_artifact("humanoid_library", result["library_path"])
-	_refresh_saved_resource(result["scene_path"])
+	_record_draft_artifact("humanoid_animation", result["library_path"])
+	_refresh_saved_resource(result["library_path"])
 
 
-func _save_soma77_take(directory: String, take_name: String) -> void:
+func _save_soma77_animation(directory: String, take_name: String) -> void:
 	if not _preview_panel.has_source():
 		_set_save_error("There is no validated generated take to save.")
 		return
-	var result := NativeAnimationBaker.bake(_preview.motion_scene(), directory, take_name)
+	var result := NativeAnimationBaker.save_library(
+		_preview.motion_scene(), directory, take_name
+	)
 	if result.is_empty():
 		_set_save_error("Godot could not save the SOMA-77 take.")
 		return
 	_preview_panel.show_save_result(
-		"Saved %s and %s" % [result["scene_path"], result["library_path"]]
+		"Saved %s" % result["library_path"]
 	)
-	_record_draft_artifact("soma77_scene", result["scene_path"])
-	_record_draft_artifact("soma77_library", result["library_path"])
+	_record_draft_artifact("soma77_animation", result["library_path"])
+	_refresh_saved_resource(result["library_path"])
+
+
+func _save_character_preview(directory: String, take_name: String) -> void:
+	if not _preview_panel.has_character():
+		_set_save_error("There is no converted character preview to save.")
+		return
+	var result := HumanoidCharacterBaker.save_preview_scene(
+		_character_preview.motion_scene(), directory, take_name
+	)
+	if result.is_empty():
+		_set_save_error("Godot could not save the character preview.")
+		return
+	_preview_panel.show_save_result("Saved %s" % result["scene_path"])
+	_record_draft_artifact("character_preview", result["scene_path"])
 	_refresh_saved_resource(result["scene_path"])
 
 
@@ -995,7 +1011,20 @@ func _record_draft_artifact(artifact_type: String, path: String) -> void:
 		return
 	_sync_draft_from_ui()
 	var take_id: String = _draft.selected_take_id if _draft != null else ""
-	var result := SessionStore.record_artifact(_draft, artifact_type, path, take_id)
+	var rig_layer := "selected_character"
+	if artifact_type == "humanoid_animation":
+		rig_layer = "godot_humanoid"
+	elif artifact_type == "soma77_animation":
+		rig_layer = "soma77"
+	var artifact_form := "preview_scene" if artifact_type == "character_preview" else "animation_library"
+	var metadata := {
+		"rig_layer": rig_layer,
+		"artifact_form": artifact_form,
+		"target_skeleton_signature": _draft.target_skeleton_signature if rig_layer == "selected_character" else "",
+	}
+	var result := SessionStore.record_artifact(
+		_draft, artifact_type, path, take_id, metadata
+	)
 	if not result["ok"]:
 		_set_draft_error(result["message"])
 		return

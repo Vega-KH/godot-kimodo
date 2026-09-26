@@ -99,7 +99,11 @@ static func append_generation_record(
 
 
 static func record_artifact(
-	session: Resource, artifact_type: String, path: String, take_id := ""
+	session: Resource,
+	artifact_type: String,
+	path: String,
+	take_id := "",
+	metadata := {},
 ) -> Dictionary:
 	if session == null or not session is Session:
 		return _error("missing_session", "Open a session before recording an artifact.")
@@ -112,7 +116,7 @@ static func record_artifact(
 		return _error("missing_artifact", "The saved artifact does not exist.", validation["path"])
 	var key := "%s:%s" % [take_id, artifact_type] if not take_id.is_empty() else artifact_type
 	var generation_record: Dictionary = session.active_generation_record()
-	session.artifacts[key] = {
+	var artifact := {
 		"status": "saved",
 		"type": artifact_type,
 		"path": validation["path"],
@@ -120,6 +124,10 @@ static func record_artifact(
 		"recorded_at_utc": Session.utc_now(),
 		"generation_record_id": generation_record.get("record_id", ""),
 	}
+	if metadata is Dictionary:
+		for field in metadata:
+			artifact[String(field)] = metadata[field]
+	session.artifacts[key] = artifact
 	session.touch()
 	return {"ok": true, "artifact": session.artifacts[key].duplicate(true)}
 

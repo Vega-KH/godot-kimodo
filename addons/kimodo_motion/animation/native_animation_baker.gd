@@ -7,6 +7,51 @@ const PLAYER_NODE_NAME := "AnimationPlayer"
 const ANIMATION_NAME := "motion"
 
 
+static func save_library(
+	imported_root: Node,
+	output_directory: String,
+	requested_stem: String = "kimodo_motion",
+) -> Dictionary:
+	var source_player := _find_first(imported_root, "AnimationPlayer") as AnimationPlayer
+	if source_player == null:
+		push_error("Cannot save native motion without an AnimationPlayer")
+		return {}
+	var source_names := source_player.get_animation_list()
+	if source_names.size() != 1:
+		push_error("Expected exactly one source animation, found %d" % source_names.size())
+		return {}
+	var directory_result := ProjectPaths.ensure_directory(output_directory)
+	if not directory_result["ok"]:
+		push_error(directory_result["message"])
+		return {}
+	output_directory = directory_result["path"]
+	var stem := _unique_library_stem(output_directory, requested_stem)
+	var library_path := output_directory.path_join(stem + ".res")
+	var native_animation := source_player.get_animation(source_names[0]).duplicate(true) as Animation
+	for track in native_animation.get_track_count():
+		var source_path := native_animation.track_get_path(track)
+		if source_path.get_subname_count() != 1:
+			push_error("Unsupported imported animation track path: %s" % source_path)
+			return {}
+		native_animation.track_set_path(
+			track,
+			NodePath("%s:%s" % [SKELETON_NODE_NAME, source_path.get_subname(0)]),
+		)
+	native_animation.resource_name = ANIMATION_NAME
+	var library := AnimationLibrary.new()
+	if library.add_animation(ANIMATION_NAME, native_animation) != OK:
+		push_error("Cannot add native motion to its AnimationLibrary")
+		return {}
+	if ResourceSaver.save(library, library_path) != OK:
+		push_error("Cannot save native AnimationLibrary: %s" % library_path)
+		return {}
+	return {
+		"stem": stem,
+		"library_path": library_path,
+		"animation_name": ANIMATION_NAME,
+	}
+
+
 static func bake(
 	imported_root: Node,
 	output_directory: String,
@@ -115,6 +160,18 @@ static func _unique_stem(directory: String, requested: String) -> String:
 		FileAccess.file_exists(directory.path_join(candidate + ".res"))
 		or FileAccess.file_exists(directory.path_join(candidate + ".tscn"))
 	):
+		candidate = "%s_%d" % [clean, suffix]
+		suffix += 1
+	return candidate
+
+
+static func _unique_library_stem(directory: String, requested: String) -> String:
+	var clean := requested.validate_filename().strip_edges()
+	if clean.is_empty():
+		clean = "kimodo_motion"
+	var candidate := clean
+	var suffix := 2
+	while FileAccess.file_exists(directory.path_join(candidate + ".res")):
 		candidate = "%s_%d" % [clean, suffix]
 		suffix += 1
 	return candidate
