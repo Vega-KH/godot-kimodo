@@ -7,6 +7,9 @@ const HumanoidMap := preload(
 const RigProfile := preload(
 	"res://addons/kimodo_motion/retargeting/humanoid_rig_profile.gd"
 )
+const RestOrientation := preload(
+	"res://addons/kimodo_motion/retargeting/rest_orientation.gd"
+)
 const ProjectPaths := preload("res://addons/kimodo_motion/domain/project_paths.gd")
 const ANIMATION_NAME := "motion"
 const PLAYER_NODE_NAME := "KimodoAnimationPlayer"
@@ -130,6 +133,21 @@ static func validate(
 		var target_name: StringName = rig_profile.target_for(canonical_name)
 		if target_skeleton.find_bone(target_name) < 0:
 			return "Character skeleton is missing profiled bone %s" % target_name
+	var source_rests := _global_rests(source_skeleton)
+	var target_rests := _global_rests(target_skeleton)
+	for canonical_name in HumanoidMap.ORIENTATION_FRAMES:
+		if rig_profile.target_for(canonical_name).is_empty():
+			continue
+		var frame_error := _validate_orientation_frame(
+			canonical_name,
+			source_skeleton,
+			source_rests,
+			target_skeleton,
+			target_rests,
+			rig_profile,
+		)
+		if not frame_error.is_empty():
+			return frame_error
 	return ""
 
 
@@ -341,6 +359,28 @@ static func _direction_corrected_rest_basis(
 	var source_index := source.find_bone(canonical_name)
 	var target_index := target.find_bone(rig_profile.target_for(canonical_name))
 	var target_basis := target_global_rests[target_index].basis
+	var frame: Dictionary = HumanoidMap.orientation_frame_for_target(canonical_name)
+	if not frame.is_empty():
+		var source_frame := RestOrientation.anatomical_frame(
+			source,
+			source_global_rests,
+			canonical_name,
+			frame["forward"],
+			frame["lateral_from"],
+			frame["lateral_to"],
+		)
+		var target_frame := RestOrientation.anatomical_frame(
+			target,
+			target_global_rests,
+			rig_profile.target_for(canonical_name),
+			rig_profile.target_for(frame["forward"]),
+			rig_profile.target_for(frame["lateral_from"]),
+			rig_profile.target_for(frame["lateral_to"]),
+		)
+		if not source_frame["ok"] or not target_frame["ok"]:
+			push_error("Validated hand orientation frame became unavailable")
+			return target_basis
+		return source_frame["basis"] * target_frame["basis"].inverse() * target_basis
 	var child_canonical := HumanoidMap.direction_child_for_target(canonical_name)
 	if child_canonical.is_empty() or rig_profile.target_for(child_canonical).is_empty():
 		return target_basis
@@ -353,6 +393,47 @@ static func _direction_corrected_rest_basis(
 		target_global_rests[target_child_index].origin
 	)
 	return Basis(Quaternion(target_direction, source_direction)) * target_basis
+
+
+static func _validate_orientation_frame(
+	canonical_name: StringName,
+	source: Skeleton3D,
+	source_rests: Array[Transform3D],
+	target: Skeleton3D,
+	target_rests: Array[Transform3D],
+	rig_profile: RefCounted,
+) -> String:
+	var frame: Dictionary = HumanoidMap.orientation_frame_for_target(canonical_name)
+	var source_frame := RestOrientation.anatomical_frame(
+		source,
+		source_rests,
+		canonical_name,
+		frame["forward"],
+		frame["lateral_from"],
+		frame["lateral_to"],
+	)
+	if not source_frame["ok"]:
+		return "Humanoid %s" % source_frame["message"]
+	var target_names := [
+		rig_profile.target_for(canonical_name),
+		rig_profile.target_for(frame["forward"]),
+		rig_profile.target_for(frame["lateral_from"]),
+		rig_profile.target_for(frame["lateral_to"]),
+	]
+	for target_name in target_names:
+		if target_name.is_empty():
+			return "Character rig profile cannot resolve the %s hand orientation frame" % canonical_name
+	var target_frame := RestOrientation.anatomical_frame(
+		target,
+		target_rests,
+		target_names[0],
+		target_names[1],
+		target_names[2],
+		target_names[3],
+	)
+	if not target_frame["ok"]:
+		return "Character %s" % target_frame["message"]
+	return ""
 
 
 static func _sample_global_poses(

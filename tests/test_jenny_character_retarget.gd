@@ -9,6 +9,9 @@ const HumanoidMap := preload(
 const RigProfile := preload(
 	"res://addons/kimodo_motion/retargeting/humanoid_rig_profile.gd"
 )
+const RestOrientation := preload(
+	"res://addons/kimodo_motion/retargeting/rest_orientation.gd"
+)
 const SOURCE_SCENE := preload(
 	"res://tests/retargeting/generated/soma77_walk_humanoid.tscn"
 )
@@ -87,6 +90,43 @@ func _run() -> void:
 		"reserved animation ownership is rejected",
 	)
 	reserved_player.free()
+	var extra_bone_character := JENNY_SCENE.instantiate() as Node3D
+	var extra_bone_skeleton := _find_first(
+		extra_bone_character, "Skeleton3D"
+	) as Skeleton3D
+	var ponytail_index := extra_bone_skeleton.get_bone_count()
+	extra_bone_skeleton.add_bone("PonytailTest")
+	extra_bone_skeleton.set_bone_parent(
+		ponytail_index, extra_bone_skeleton.find_bone("Head")
+	)
+	var ponytail_rest := Transform3D(Basis.IDENTITY, Vector3(0.0, 0.1, -0.08))
+	extra_bone_skeleton.set_bone_rest(ponytail_index, ponytail_rest)
+	extra_bone_skeleton.set_bone_pose(ponytail_index, ponytail_rest)
+	_check(
+		Baker.validate_target(extra_bone_character).is_empty(),
+		"an unmapped ponytail bone is accepted as an extra rig branch",
+	)
+	var extra_bone_motion: RefCounted = Baker.create_motion(source, extra_bone_character)
+	_check(extra_bone_motion != null, "a character with an extra ponytail bone retargets")
+	if extra_bone_motion != null:
+		var extra_animation: Animation = extra_bone_motion.player.get_animation("motion")
+		_check(
+			_find_track(extra_animation, "PonytailTest", Animation.TYPE_ROTATION_3D) < 0,
+			"the unmapped ponytail bone receives no authored track",
+		)
+		extra_bone_motion.player.seek(0.5, true)
+		var head_index := extra_bone_skeleton.find_bone("Head")
+		var inherited_pose := (
+			extra_bone_skeleton.get_bone_global_pose(head_index)
+			* extra_bone_skeleton.get_bone_rest(ponytail_index)
+		)
+		_check(
+			extra_bone_skeleton.get_bone_global_pose(ponytail_index).is_equal_approx(
+				inherited_pose
+			),
+			"the unmapped ponytail bone inherits animated head motion",
+		)
+		extra_bone_motion.scene.free()
 	var renamed_character := JENNY_SCENE.instantiate() as Node3D
 	var renamed_skeleton := _find_first(renamed_character, "Skeleton3D") as Skeleton3D
 	var renamed_index := renamed_skeleton.find_bone("LeftHand")
@@ -247,6 +287,9 @@ func _validate_model_space_deltas(
 					non_commuting_bones += 1
 	_check(non_commuting_bones >= 4, "Jenny exercises non-commuting rest rotations")
 	_validate_segment_directions(source_skeleton, source_player, target_skeleton, target_player)
+	_validate_hand_orientation_frames(
+		source_skeleton, source_player, target_skeleton, target_player, rig_profile
+	)
 
 
 func _validate_root_motion(source_player: AnimationPlayer, target_player: AnimationPlayer) -> void:
@@ -332,6 +375,29 @@ func _direction_corrected_rest(
 ) -> Basis:
 	var source_index := source.find_bone(bone_name)
 	var target_index := target.find_bone(bone_name)
+	var frame: Dictionary = HumanoidMap.orientation_frame_for_target(bone_name)
+	if not frame.is_empty():
+		var source_frame := RestOrientation.anatomical_frame(
+			source,
+			source_rests,
+			bone_name,
+			frame["forward"],
+			frame["lateral_from"],
+			frame["lateral_to"],
+		)
+		var target_frame := RestOrientation.anatomical_frame(
+			target,
+			target_rests,
+			bone_name,
+			frame["forward"],
+			frame["lateral_from"],
+			frame["lateral_to"],
+		)
+		return (
+			source_frame["basis"]
+			* target_frame["basis"].inverse()
+			* target_rests[target_index].basis
+		)
 	var child_name := HumanoidMap.direction_child_for_target(bone_name)
 	if child_name.is_empty():
 		return target_rests[target_index].basis
@@ -370,6 +436,56 @@ func _validate_segment_directions(
 			_check(
 				source_direction.angle_to(target_direction) <= INTERPOLATED_ROTATION_TOLERANCE,
 				"%s segment direction matches at %.3f" % [bone_name, time],
+			)
+
+
+func _validate_hand_orientation_frames(
+	source: Skeleton3D,
+	source_player: AnimationPlayer,
+	target: Skeleton3D,
+	target_player: AnimationPlayer,
+	rig_profile: RefCounted,
+) -> void:
+	var source_rests := _global_rests(source)
+	var target_rests := _global_rests(target)
+	for time in SAMPLE_TIMES:
+		source_player.seek(time, true)
+		target_player.seek(time, true)
+		for canonical_name in HumanoidMap.ORIENTATION_FRAMES:
+			var frame: Dictionary = HumanoidMap.orientation_frame_for_target(canonical_name)
+			var source_frame := RestOrientation.anatomical_frame(
+				source,
+				source_rests,
+				canonical_name,
+				frame["forward"],
+				frame["lateral_from"],
+				frame["lateral_to"],
+			)
+			var target_frame := RestOrientation.anatomical_frame(
+				target,
+				target_rests,
+				rig_profile.target_for(canonical_name),
+				rig_profile.target_for(frame["forward"]),
+				rig_profile.target_for(frame["lateral_from"]),
+				rig_profile.target_for(frame["lateral_to"]),
+			)
+			var source_index := source.find_bone(canonical_name)
+			var target_index := target.find_bone(rig_profile.target_for(canonical_name))
+			var source_motion := (
+				source.get_bone_global_pose(source_index).basis
+				* source_rests[source_index].basis.inverse()
+			)
+			var target_motion := (
+				target.get_bone_global_pose(target_index).basis
+				* target_rests[target_index].basis.inverse()
+			)
+			var source_animated: Basis = source_motion * source_frame["basis"]
+			var target_animated: Basis = target_motion * target_frame["basis"]
+			_check(
+				source_animated.get_rotation_quaternion().angle_to(
+					target_animated.get_rotation_quaternion()
+				) <= INTERPOLATED_ROTATION_TOLERANCE,
+				"%s anatomical frame matches at %.3f" % [canonical_name, time],
 			)
 
 

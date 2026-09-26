@@ -4,6 +4,9 @@ const Baker := preload(
 	"res://addons/kimodo_motion/retargeting/humanoid_retarget_baker.gd"
 )
 const Map := preload("res://addons/kimodo_motion/retargeting/soma77_humanoid_map.gd")
+const RestOrientation := preload(
+	"res://addons/kimodo_motion/retargeting/rest_orientation.gd"
+)
 const SOURCE_SCENE := "res://tests/native/generated/soma77_walk.tscn"
 const SOURCE_LIBRARY := "res://tests/native/generated/soma77_walk.res"
 const TARGET_FIXTURE := "res://tests/retargeting/fixtures/godot_humanoid_a_pose.tscn"
@@ -226,6 +229,17 @@ func _validate_mapping(source: Skeleton3D, target: Skeleton3D) -> void:
 	_check(Map.source_for_target("LeftIndexProximal") == "LeftHandIndex2", "index palm joint is collapsed")
 	_check(Map.source_for_target("RightThumbMetacarpal") == "RightHandThumb1", "thumb metacarpal is mapped")
 	_check(Map.source_for_target("Jaw") == "Jaw", "facial rotation targets are mapped")
+	_check(Map.ORIENTATION_FRAMES.size() == 2, "both hands have anatomical orientation frames")
+	var degenerate := target.duplicate() as Skeleton3D
+	var middle_index := degenerate.find_bone("LeftMiddleProximal")
+	var middle_rest := degenerate.get_bone_rest(middle_index)
+	middle_rest.origin = Vector3.ZERO
+	degenerate.set_bone_rest(middle_index, middle_rest)
+	_check(
+		Map.validate(source, degenerate).contains("zero-length forward axis"),
+		"a degenerate hand orientation frame is rejected clearly",
+	)
+	degenerate.free()
 
 
 func _evaluate_engine_modifier(source: Skeleton3D) -> void:
@@ -325,6 +339,7 @@ func _validate_motion(source_root: Node, target_root: Node) -> void:
 			non_commuting_bones += 1
 	_check(non_commuting_bones >= 4, "fixture exercises non-commuting rest rotations")
 	_validate_segment_directions(source_skeleton, target_skeleton)
+	_validate_hand_orientation_frames(source_skeleton, target_skeleton)
 
 	var source_animation := source_player.get_animation("motion")
 	var target_animation := target_player.get_animation("motion")
@@ -376,6 +391,49 @@ func _validate_root_hips_segment(
 		_check(offset.length() < 1.1, "Root-to-Hips segment stays bounded at %.2f" % ratio)
 
 
+func _validate_hand_orientation_frames(
+	source: Skeleton3D, target: Skeleton3D
+) -> void:
+	var source_rests := _global_rests(source)
+	var target_rests := _global_rests(target)
+	for target_name in Map.ORIENTATION_FRAMES:
+		var frame: Dictionary = Map.orientation_frame_for_target(target_name)
+		var source_frame := RestOrientation.anatomical_frame(
+			source,
+			source_rests,
+			Map.source_for_target(target_name),
+			Map.source_for_target(frame["forward"]),
+			Map.source_for_target(frame["lateral_from"]),
+			Map.source_for_target(frame["lateral_to"]),
+		)
+		var target_frame := RestOrientation.anatomical_frame(
+			target,
+			target_rests,
+			target_name,
+			frame["forward"],
+			frame["lateral_from"],
+			frame["lateral_to"],
+		)
+		var source_index := source.find_bone(Map.source_for_target(target_name))
+		var target_index := target.find_bone(target_name)
+		var source_motion := (
+			source.get_bone_global_pose(source_index).basis
+			* source_rests[source_index].basis.inverse()
+		)
+		var target_motion := (
+			target.get_bone_global_pose(target_index).basis
+			* target_rests[target_index].basis.inverse()
+		)
+		var source_animated: Basis = source_motion * source_frame["basis"]
+		var target_animated: Basis = target_motion * target_frame["basis"]
+		_check(
+			source_animated.get_rotation_quaternion().angle_to(
+				target_animated.get_rotation_quaternion()
+			) <= ROTATION_TOLERANCE,
+			"%s preserves its full anatomical hand frame" % target_name,
+		)
+
+
 func _validate_dependency_closure(path: String) -> void:
 	var pending: Array[String] = [path]
 	var visited := {}
@@ -421,6 +479,29 @@ func _direction_corrected_rest(
 	target_rests: Array[Transform3D],
 ) -> Basis:
 	var target_index := target.find_bone(target_name)
+	var frame: Dictionary = Map.orientation_frame_for_target(target_name)
+	if not frame.is_empty():
+		var source_frame := RestOrientation.anatomical_frame(
+			source,
+			source_rests,
+			Map.source_for_target(target_name),
+			Map.source_for_target(frame["forward"]),
+			Map.source_for_target(frame["lateral_from"]),
+			Map.source_for_target(frame["lateral_to"]),
+		)
+		var target_frame := RestOrientation.anatomical_frame(
+			target,
+			target_rests,
+			target_name,
+			frame["forward"],
+			frame["lateral_from"],
+			frame["lateral_to"],
+		)
+		return (
+			source_frame["basis"]
+			* target_frame["basis"].inverse()
+			* target_rests[target_index].basis
+		)
 	var child_name := Map.direction_child_for_target(target_name)
 	if child_name.is_empty():
 		return target_rests[target_index].basis

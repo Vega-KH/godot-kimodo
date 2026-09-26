@@ -109,9 +109,13 @@ The selected target must contain exactly one `Skeleton3D`, finite rest
 transforms, and at least one bound skin. The current automatic profile matches
 Godot humanoid semantic names and has been validated with Jenny; the retargeter
 itself accepts explicit canonical-to-character bone profiles so future imported
-rigs do not require Jenny-specific transfer code. Changing the character
-rebuilds the derived preview automatically. **Clear** removes only the target
-and derived preview.
+rigs do not require Jenny-specific transfer code. Wrist transfer uses a full
+hand frame derived from the middle-finger direction and index-to-little-finger
+palm axis, preserving both flexion and roll across differing rest bases.
+Unmapped branch bones, such as ponytail bones under `Head`, receive no Kimodo
+tracks and continue to inherit their animated parent normally. Changing the
+character rebuilds the derived preview automatically. **Clear** removes only
+the target and derived preview.
 
 To keep the selected result, choose **Character animation** (the default),
 **Humanoid animation**, **SOMA-77 animation**, or **Character Preview**, then

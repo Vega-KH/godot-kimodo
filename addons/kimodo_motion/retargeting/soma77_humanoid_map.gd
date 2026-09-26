@@ -1,6 +1,10 @@
 class_name Soma77HumanoidMap
 extends RefCounted
 
+const RestOrientation := preload(
+	"res://addons/kimodo_motion/retargeting/rest_orientation.gd"
+)
+
 # The target names are Godot SkeletonProfileHumanoid names. Intermediate SOMA
 # joints are intentionally collapsed by model-space rest-delta transfer.
 const TARGET_TO_SOURCE := {
@@ -130,6 +134,22 @@ const DIRECTION_SOURCE_CHILD_OVERRIDES := {
 	"UpperChest": "Neck1",
 }
 
+# Hands need a complete anatomical frame rather than the one-vector direction
+# correction used by limb segments. The forward and lateral axes preserve both
+# wrist flexion and palm roll across rigs with different bone rest bases.
+const ORIENTATION_FRAMES := {
+	"LeftHand": {
+		"forward": "LeftMiddleProximal",
+		"lateral_from": "LeftIndexProximal",
+		"lateral_to": "LeftLittleProximal",
+	},
+	"RightHand": {
+		"forward": "RightMiddleProximal",
+		"lateral_from": "RightIndexProximal",
+		"lateral_to": "RightLittleProximal",
+	},
+}
+
 const COLLAPSED_SOURCE_JOINTS := [
 	"Neck1",
 	"LeftHandIndex1", "LeftHandMiddle1", "LeftHandRing1", "LeftHandPinky1",
@@ -157,6 +177,10 @@ static func source_direction_child_for_target(target_name: StringName) -> String
 	if DIRECTION_SOURCE_CHILD_OVERRIDES.has(String(target_name)):
 		return StringName(DIRECTION_SOURCE_CHILD_OVERRIDES[String(target_name)])
 	return source_for_target(direction_child_for_target(target_name))
+
+
+static func orientation_frame_for_target(target_name: StringName) -> Dictionary:
+	return ORIENTATION_FRAMES.get(String(target_name), {})
 
 
 static func source_dispositions() -> Dictionary:
@@ -190,4 +214,38 @@ static func validate(source: Skeleton3D, target: Skeleton3D) -> String:
 	for source_name in Soma77Contract.JOINT_NAMES:
 		if not dispositions.has(String(source_name)):
 			return "SOMA-77 profile does not account for source joint %s" % source_name
+	var source_rests := _global_rests(source)
+	var target_rests := _global_rests(target)
+	for target_name in ORIENTATION_FRAMES:
+		var frame: Dictionary = ORIENTATION_FRAMES[target_name]
+		var source_frame := RestOrientation.anatomical_frame(
+			source,
+			source_rests,
+			source_for_target(target_name),
+			source_for_target(frame["forward"]),
+			source_for_target(frame["lateral_from"]),
+			source_for_target(frame["lateral_to"]),
+		)
+		if not source_frame["ok"]:
+			return "SOMA-77 %s" % source_frame["message"]
+		var target_frame := RestOrientation.anatomical_frame(
+			target,
+			target_rests,
+			target_name,
+			frame["forward"],
+			frame["lateral_from"],
+			frame["lateral_to"],
+		)
+		if not target_frame["ok"]:
+			return "Humanoid %s" % target_frame["message"]
 	return ""
+
+
+static func _global_rests(skeleton: Skeleton3D) -> Array[Transform3D]:
+	var rests: Array[Transform3D] = []
+	rests.resize(skeleton.get_bone_count())
+	for index in skeleton.get_bone_count():
+		var local := skeleton.get_bone_rest(index)
+		var parent := skeleton.get_bone_parent(index)
+		rests[index] = local if parent < 0 else rests[parent] * local
+	return rests

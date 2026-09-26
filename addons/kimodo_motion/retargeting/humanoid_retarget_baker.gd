@@ -2,6 +2,9 @@ class_name HumanoidRetargetBaker
 extends RefCounted
 
 const MAP := preload("res://addons/kimodo_motion/retargeting/soma77_humanoid_map.gd")
+const RestOrientation := preload(
+	"res://addons/kimodo_motion/retargeting/rest_orientation.gd"
+)
 const ProjectPaths := preload("res://addons/kimodo_motion/domain/project_paths.gd")
 const TARGET_SKELETON_NAME := "HumanoidSkeleton"
 const PLAYER_NODE_NAME := "AnimationPlayer"
@@ -298,6 +301,28 @@ static func _direction_corrected_rest_basis(
 ) -> Basis:
 	var target_index := target.find_bone(target_name)
 	var target_basis := target_global_rests[target_index].basis
+	var frame: Dictionary = MAP.orientation_frame_for_target(target_name)
+	if not frame.is_empty():
+		var source_frame := RestOrientation.anatomical_frame(
+			source,
+			source_global_rests,
+			MAP.source_for_target(target_name),
+			MAP.source_for_target(frame["forward"]),
+			MAP.source_for_target(frame["lateral_from"]),
+			MAP.source_for_target(frame["lateral_to"]),
+		)
+		var target_frame := RestOrientation.anatomical_frame(
+			target,
+			target_global_rests,
+			target_name,
+			frame["forward"],
+			frame["lateral_from"],
+			frame["lateral_to"],
+		)
+		if not source_frame["ok"] or not target_frame["ok"]:
+			push_error("Validated hand orientation frame became unavailable")
+			return target_basis
+		return source_frame["basis"] * target_frame["basis"].inverse() * target_basis
 	var child_name := MAP.direction_child_for_target(target_name)
 	if child_name.is_empty():
 		return target_basis
