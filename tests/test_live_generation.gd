@@ -3,6 +3,7 @@ extends SceneTree
 const CapabilitiesClient := preload("res://addons/kimodo_motion/transport/mmcp_capabilities_client.gd")
 const GenerationClient := preload("res://addons/kimodo_motion/transport/mmcp_generation_client.gd")
 const Dock := preload("res://addons/kimodo_motion/ui/ai_motion_dock.gd")
+const PreviewPanel := preload("res://addons/kimodo_motion/ui/preview_save_panel.gd")
 const JENNY := preload("res://tests/characters/fixtures/Jenny03.glb")
 
 var _session_path := ""
@@ -100,11 +101,6 @@ func _run() -> void:
 		if dock._take_set.active_index != 1 or not preview.has_motion():
 			_fail("live take switching did not preserve a valid preview")
 			return
-	var retarget_button := dock.find_child("RetargetHumanoid", true, false) as Button
-	if retarget_button.disabled:
-		_fail("humanoid retarget did not enable after live generation")
-		return
-	retarget_button.emit_signal("pressed")
 	var humanoid: Control = dock.find_child("HumanoidPreview", true, false)
 	if not humanoid.has_motion() or humanoid.skeleton().get_bone_count() != 56:
 		_fail("live result did not retarget to the 56-bone humanoid preview")
@@ -117,32 +113,16 @@ func _run() -> void:
 		output.store_buffer(generation.last_response_bytes)
 		output.close()
 	if not native_directory.is_empty():
-		var directory: LineEdit = dock.find_child("NativeTakeDirectory", true, false)
-		var take_name: LineEdit = dock.find_child("NativeTakeName", true, false)
-		directory.text = native_directory
-		take_name.text = native_name
-		var save_button: Button = dock.find_child("SaveNativeTake", true, false)
-		if save_button.disabled:
-			_fail("native save did not enable after live generation")
-			return
-		save_button.emit_signal("pressed")
 		var scene_path := native_directory.path_join(native_name + ".tscn")
 		var library_path := native_directory.path_join(native_name + ".res")
+		dock._preview_panel.submit_save_path(PreviewPanel.SaveKind.SOMA77, scene_path)
 		if not FileAccess.file_exists(scene_path) or not FileAccess.file_exists(library_path):
 			_fail("live preview did not save native assets")
 			return
 	if not humanoid_directory.is_empty():
-		var humanoid_dir: LineEdit = dock.find_child("HumanoidTakeDirectory", true, false)
-		var humanoid_take_name: LineEdit = dock.find_child("HumanoidTakeName", true, false)
-		humanoid_dir.text = humanoid_directory
-		humanoid_take_name.text = humanoid_name
-		var humanoid_save := dock.find_child("SaveHumanoidTake", true, false) as Button
-		if humanoid_save.disabled:
-			_fail("humanoid save did not enable after live retarget")
-			return
-		humanoid_save.emit_signal("pressed")
 		var humanoid_scene := humanoid_directory.path_join(humanoid_name + ".tscn")
 		var humanoid_library := humanoid_directory.path_join(humanoid_name + ".res")
+		dock._preview_panel.submit_save_path(PreviewPanel.SaveKind.HUMANOID, humanoid_scene)
 		if not FileAccess.file_exists(humanoid_scene) or not FileAccess.file_exists(humanoid_library):
 			_fail("live humanoid preview did not save native assets")
 			return

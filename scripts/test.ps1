@@ -53,6 +53,9 @@ Invoke-GodotCheck -Name 'Asynchronous generation and preview' -GodotArguments @(
 Invoke-GodotCheck -Name 'AI Motion dock state and lifecycle' -GodotArguments @(
     '--headless', '--path', '.', '--script', 'res://tests/test_ai_motion_dock.gd'
 )
+Invoke-GodotCheck -Name 'Focused editor UI component ownership' -GodotArguments @(
+    '--headless', '--path', '.', '--script', 'res://tests/test_ui_components.gd'
+)
 Invoke-GodotCheck -Name 'MotionDraft persistence and provenance' -GodotArguments @(
     '--headless', '--path', '.', '--script', 'res://tests/test_motion_draft.gd'
 )

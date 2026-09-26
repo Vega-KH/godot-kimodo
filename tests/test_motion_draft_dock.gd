@@ -5,6 +5,7 @@ const Client := preload("res://addons/kimodo_motion/transport/mmcp_capabilities_
 const GenerationClient := preload("res://addons/kimodo_motion/transport/mmcp_generation_client.gd")
 const MotionResponse := preload("res://addons/kimodo_motion/transport/mmcp_motion_response.gd")
 const Dock := preload("res://addons/kimodo_motion/ui/ai_motion_dock.gd")
+const PreviewPanel := preload("res://addons/kimodo_motion/ui/preview_save_panel.gd")
 const JENNY := preload("res://tests/characters/fixtures/Jenny03.glb")
 const JENNY_PATH := "res://tests/characters/fixtures/Jenny03.glb"
 const CAPABILITIES_FIXTURE := "res://tests/fixtures/soma77_capabilities.json"
@@ -94,11 +95,9 @@ func _run() -> void:
 	_check(dock._draft.selected_take_id == summaries[1]["take_id"], "selected take metadata updates")
 	_check(FileAccess.get_sha256(JENNY_PATH) == fixture_hash, "session generation never mutates Jenny")
 	var output_directory := "res://tests/.goal14_selected_take_%d" % OS.get_process_id()
-	(dock.find_child("NativeTakeDirectory", true, false) as LineEdit).text = output_directory
-	(dock.find_child("NativeTakeName", true, false) as LineEdit).text = "selected_take"
-	(dock.find_child("SaveNativeTake", true, false) as Button).emit_signal("pressed")
 	var saved_scene := output_directory.path_join("selected_take.tscn")
 	var saved_library := output_directory.path_join("selected_take.res")
+	dock._preview_panel.submit_save_path(PreviewPanel.SaveKind.SOMA77, saved_scene)
 	_cleanup_paths.append(saved_scene)
 	_cleanup_paths.append(saved_library)
 	_check(FileAccess.file_exists(saved_scene) and FileAccess.file_exists(saved_library), "selected take saves explicitly")
@@ -130,7 +129,7 @@ func _run() -> void:
 	_check(dock._draft.active_take_summaries().size() == 2, "offline reopen restores summaries")
 	_check(dock._draft.artifacts.size() == 2, "offline reopen restores saved selected-take artifacts")
 	_check(dock._take_set.is_empty(), "offline reopen does not invent transient payloads")
-	_check((dock.find_child("SaveNativeTake", true, false) as Button).disabled, "save requires a live take")
+	_check((dock.find_child("SaveSelectedTake", true, false) as Button).disabled, "save requires a live take")
 	_check(FileAccess.get_sha256(JENNY_PATH) == fixture_hash, "offline reopen leaves Jenny unchanged")
 
 	dock.queue_free()

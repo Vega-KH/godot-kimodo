@@ -4,6 +4,7 @@ const MotionResponse := preload(
 	"res://addons/kimodo_motion/transport/mmcp_motion_response.gd"
 )
 const Dock := preload("res://addons/kimodo_motion/ui/ai_motion_dock.gd")
+const PreviewPanel := preload("res://addons/kimodo_motion/ui/preview_save_panel.gd")
 const MOTION_FIXTURE := "res://tests/fixtures/soma77_mmcp_1_0.gltf"
 const JENNY_SCENE := preload("res://tests/characters/fixtures/Jenny03.glb")
 const JENNY_PATH := "res://tests/characters/fixtures/Jenny03.glb"
@@ -26,8 +27,7 @@ func _run() -> void:
 	var session_path: String = dock._draft_path
 	var picker := dock.find_child("CharacterTarget", true, false) as Control
 	var clear := dock.find_child("ClearCharacterTarget", true, false) as Button
-	var preview_action := dock.find_child("PreviewOnCharacter", true, false) as Button
-	var save := dock.find_child("SaveCharacterTake", true, false) as Button
+	var save := dock.find_child("SaveSelectedTake", true, false) as Button
 	var status := dock.find_child("CharacterStatus", true, false) as Label
 	var selector := dock.find_child("PreviewSelection", true, false) as OptionButton
 	var source: Control = dock.find_child("MotionPreview", true, false)
@@ -35,7 +35,7 @@ func _run() -> void:
 	var character: Control = dock.find_child("CharacterPreview", true, false)
 	_check(picker != null, "character target selector is present")
 	_check(clear.disabled, "clear begins disabled")
-	_check(preview_action.disabled, "character preview begins disabled")
+	_check(dock.find_child("PreviewOnCharacter", true, false) == null, "obsolete preview button is absent")
 	_check(save.disabled, "character save begins disabled")
 	_check(selector.item_count == 3, "preview selector includes the skinned character")
 	_check(selector.is_item_disabled(2), "character preview choice begins disabled")
@@ -52,7 +52,6 @@ func _run() -> void:
 	invalid_root.free()
 	dock._on_character_target_changed(invalid_scene)
 	_check(status.text.contains("Root"), "incompatible target reports its missing Root")
-	_check(preview_action.disabled, "incompatible target cannot preview")
 	_check(not clear.disabled, "an incompatible selection can still be cleared")
 	clear.emit_signal("pressed")
 	_check(dock._character_target == null, "clear resets the target resource")
@@ -60,13 +59,8 @@ func _run() -> void:
 	dock._on_character_target_changed(JENNY_SCENE)
 	_check(status.text.contains("61 bones"), "Jenny compatibility summary is shown")
 	_check(status.text.contains("8 skinned meshes"), "Jenny skin summary is shown")
-	_check(preview_action.disabled, "target waits for humanoid motion")
 	_check(dock._accept_source_motion(_parse_motion()), "validated source enters the dock")
-	var retarget := dock.find_child("RetargetHumanoid", true, false) as Button
-	retarget.emit_signal("pressed")
 	_check(humanoid.has_motion(), "humanoid intermediate is ready")
-	_check(not preview_action.disabled, "character preview enables for target and humanoid")
-	preview_action.emit_signal("pressed")
 	_check(character.has_motion(), "character preview owns a retargeted scene")
 	_check(character.skeleton().get_bone_count() == 61, "character preview retains Jenny's rig")
 	_check(_skinned_mesh_count(character.motion_scene()) == 8, "character preview retains all skins")
@@ -96,21 +90,14 @@ func _run() -> void:
 	var relative_directory := "res://tests/.goal12_%d_%d" % [
 		OS.get_process_id(), Time.get_ticks_usec()
 	]
-	var directory := dock.find_child("CharacterTakeDirectory", true, false) as LineEdit
-	var take_name := dock.find_child("CharacterTakeName", true, false) as LineEdit
-	directory.text = relative_directory
-	take_name.text = "jenny generated walk"
-	save.emit_signal("pressed")
 	var first_scene := relative_directory.path_join("jenny generated walk.tscn")
-	var save_status := dock.find_child("CharacterTakeStatus", true, false) as Label
+	dock._preview_panel.submit_save_path(PreviewPanel.SaveKind.CHARACTER, first_scene)
+	var save_status := dock.find_child("TakeSaveStatus", true, false) as Label
 	_check(FileAccess.file_exists(first_scene), "character scene is saved")
 	_check(save_status.text.contains(first_scene), "character output path is reported")
 	_check(character.motion_scene() == preview_scene, "save preserves live preview ownership")
-	save.emit_signal("pressed")
-	_check(
-		FileAccess.file_exists(relative_directory.path_join("jenny generated walk_2.tscn")),
-		"duplicate character save uses a unique name",
-	)
+	dock._preview_panel.submit_save_path(PreviewPanel.SaveKind.CHARACTER, first_scene)
+	_check(save_status.text.contains("never overwrites"), "duplicate character save is rejected")
 	_check(FileAccess.get_sha256(JENNY_PATH) == fixture_hash, "saving does not modify Jenny")
 
 	var packed := ResourceLoader.load(
@@ -136,13 +123,12 @@ func _run() -> void:
 	_check(save.disabled, "clear disables character save")
 
 	dock._on_character_target_changed(JENNY_SCENE)
-	preview_action.emit_signal("pressed")
+	_check(character.has_motion(), "selecting a target rebuilds the character conversion")
 	var replacement_character_scene: Node = character.motion_scene()
 	_check(dock._accept_source_motion(_parse_motion()), "replacement source is accepted")
 	_check(not is_instance_valid(replacement_character_scene), "replacement frees character preview")
-	_check(not humanoid.has_motion() and not character.has_motion(), "replacement clears derived previews")
+	_check(humanoid.has_motion() and character.has_motion(), "replacement rebuilds derived previews")
 	_check(dock._character_target == JENNY_SCENE, "replacement preserves target selection")
-	_check(preview_action.disabled, "target waits for the replacement humanoid")
 
 	saved_scene.queue_free()
 	dock.queue_free()

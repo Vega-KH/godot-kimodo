@@ -4,6 +4,7 @@ const MotionResponse := preload(
 	"res://addons/kimodo_motion/transport/mmcp_motion_response.gd"
 )
 const Dock := preload("res://addons/kimodo_motion/ui/ai_motion_dock.gd")
+const PreviewPanel := preload("res://addons/kimodo_motion/ui/preview_save_panel.gd")
 const MOTION_FIXTURE := "res://tests/fixtures/soma77_mmcp_1_0.gltf"
 const SAMPLE_TIMES := [0.0, 0.25, 0.5, 29.0 / 30.0]
 
@@ -18,7 +19,8 @@ func _run() -> void:
 	var dock := Dock.new()
 	root.add_child(dock)
 	await process_frame
-	var save_button := dock.find_child("SaveNativeTake", true, false) as Button
+	var save_button := dock.find_child("SaveSelectedTake", true, false) as Button
+	var save_type := dock.find_child("SaveTakeType", true, false) as OptionButton
 	_check(save_button.disabled, "save begins disabled")
 
 	var parsed := MotionResponse.parse(
@@ -30,6 +32,8 @@ func _run() -> void:
 		return
 	var preview: Control = dock.find_child("MotionPreview", true, false)
 	_check(preview.set_motion(parsed["motion"]), "validated motion enters preview")
+	save_type.select(PreviewPanel.SaveKind.SOMA77)
+	save_type.emit_signal("item_selected", PreviewPanel.SaveKind.SOMA77)
 	dock._update_save_availability()
 	_check(not save_button.disabled, "save enables for a validated preview")
 	var preview_scene: Node = preview.motion_scene()
@@ -39,29 +43,18 @@ func _run() -> void:
 	var relative_directory := "res://tests/.goal8_%d_%d" % [
 		OS.get_process_id(), Time.get_ticks_usec()
 	]
-	var directory_edit := dock.find_child("NativeTakeDirectory", true, false) as LineEdit
-	var name_edit := dock.find_child("NativeTakeName", true, false) as LineEdit
-	directory_edit.text = relative_directory
-	name_edit.text = "combat preview"
-	save_button.emit_signal("pressed")
-	var status := dock.find_child("NativeTakeStatus", true, false) as Label
 	var first_scene_path := relative_directory.path_join("combat preview.tscn")
 	var first_library_path := relative_directory.path_join("combat preview.res")
+	dock._preview_panel.submit_save_path(PreviewPanel.SaveKind.SOMA77, first_scene_path)
+	var status := dock.find_child("TakeSaveStatus", true, false) as Label
 	_check(FileAccess.file_exists(first_scene_path), "native scene is saved")
 	_check(FileAccess.file_exists(first_library_path), "native animation library is saved")
 	_check(status.text.contains(first_scene_path), "actual native paths are reported")
 	_check(preview.motion_scene() == preview_scene, "saving does not replace the active preview")
 	_check(is_instance_valid(preview_scene), "saving does not transfer preview ownership")
 
-	save_button.emit_signal("pressed")
-	_check(
-		FileAccess.file_exists(relative_directory.path_join("combat preview_2.tscn")),
-		"duplicate save receives a unique scene name",
-	)
-	_check(
-		FileAccess.file_exists(relative_directory.path_join("combat preview_2.res")),
-		"duplicate save receives a unique library name",
-	)
+	dock._preview_panel.submit_save_path(PreviewPanel.SaveKind.SOMA77, first_scene_path)
+	_check(status.text.contains("never overwrites"), "duplicate save is rejected")
 
 	var packed := ResourceLoader.load(
 		first_scene_path, "PackedScene", ResourceLoader.CACHE_MODE_IGNORE
@@ -75,8 +68,9 @@ func _run() -> void:
 	_check(not scene_text.contains(".gltf"), "saved scene has no glTF dependency")
 	_check(not scene_text.contains("addons/"), "saved scene has no addon dependency")
 
-	directory_edit.text = "user://not-project-relative"
-	save_button.emit_signal("pressed")
+	dock._preview_panel.submit_save_path(
+		PreviewPanel.SaveKind.SOMA77, "user://not-project-relative.tscn"
+	)
 	_check(status.text.contains("res://"), "non-project-relative destination is rejected")
 	_check(preview.motion_scene() == preview_scene, "save failure leaves preview intact")
 
@@ -146,7 +140,7 @@ func _check(condition: bool, description: String) -> void:
 
 func _finish() -> void:
 	if _failures.is_empty():
-		print("PASS: generated preview saves uniquely and remains independent")
+		print("PASS: generated preview saves explicitly, rejects collisions, and remains independent")
 		quit(0)
 	else:
 		for failure in _failures:

@@ -58,8 +58,8 @@ Sessions save atomically under `res://animations/kimodo/sessions`. There is no
 manual session Save button: editable fields are debounced, while session
 creation, target changes, Generate, animation saves, session switches, and
 editor shutdown force persistence. A visible Saved/Saving/error indicator
-reports the state. The active workspace is divided into **Generate**,
-**Preview**, and **Output** tabs instead of presenting every control at once.
+reports the state. The active workspace is divided into **Generate** and
+**Preview & Save** tabs instead of presenting every control at once.
 
 The connection defaults to `http://127.0.0.1:8000`. Start
 `kimodo-godot-server`, press **Connect**, and confirm the summary reports
@@ -76,9 +76,11 @@ the Godot client from waiting for that response; the current direct MMCP server
 does not yet prove that active model inference stopped. The default 100
 denoising steps favors normal-quality previews; lower values trade quality for
 speed, while values up to 200 allow a slower higher-quality pass. A valid
-response starts playing in the embedded SOMA-77 preview with shared Pause/Play,
-Loop, and timeline-scrub controls. Use the take selector to switch variations
-without changing playback time or the camera. The open session appends an immutable
+response is converted through the humanoid intermediate and onto the selected
+character automatically. It starts playing in the combined **Preview & Save**
+workspace with shared Pause/Play, Loop, and timeline-scrub controls. Use the
+take selector there to switch variations without changing playback time or the
+camera; the selected preview is also the take that Save exports. The open session appends an immutable
 generation record containing the exact request and capability documents,
 protocol/model/fps/skeleton identity, UTC time, and request/capability/response
 SHA-256 hashes plus a stable ID, sample index/name, and decoded-motion hash for
@@ -98,38 +100,30 @@ toggle **Follow Root** to keep a fixed world view, and press **Reset View** to
 restore the default angle and distance. Camera angle and zoom stay synchronized
 when switching between the SOMA-77 and humanoid previews.
 
-Press **Retarget to Humanoid** to build a non-destructive in-memory copy on
-the repository's 56-bone Godot humanoid A-pose. The preview selector switches
-between the cyan SOMA-77 source and pink humanoid result while both remain at
-the same playback time. Enter a separate humanoid take name and press **Save
-Humanoid Take** to create a self-contained `.tscn` and `.res`; errors and
-output paths are reported independently from generation and source saving.
+Each generated take includes a non-destructive in-memory copy on the
+repository's 56-bone Godot humanoid A-pose. The preview layer selector switches
+between the cyan SOMA-77 source, pink humanoid intermediate, and selected
+character result while all three remain at the same playback time.
 
 The selected target must contain exactly one `Skeleton3D`, the required exact
 Godot humanoid body names including `Root` and `Hips`, finite rest transforms,
 and at least one bound skin. This is a narrow convention validated with Jenny,
-not yet general rig certification. After creating the humanoid intermediate,
-press **Preview on Character** to add the target as a third synchronized preview
-with the same playback, scrub, orbit, zoom, and root-follow controls. **Clear**
-removes only the target and derived preview.
+not yet general rig certification. Changing the character rebuilds the derived
+preview automatically. **Clear** removes only the target and derived preview.
 
-Enter a project-relative output directory and take name, then press **Save
-Character Take**. The result is a uniquely named, self-contained `.tscn` that
-does not modify the imported character or live previews. Open the saved scene,
-select `KimodoAnimationPlayer`, and choose its `motion` animation to inspect or
-edit the character-specific tracks in Godot's Animation panel. Successful
-character, humanoid, and SOMA-77 saves are attached to the open session and
-selected take as saved
+To keep the selected result, choose **Character take** (the default),
+**Humanoid take**, or **SOMA-77 native take** and press **Save…**. Godot's save
+dialog chooses both the project location and `.tscn` filename, so the dock has
+no separate directory or name fields. Character output is one self-contained
+scene; humanoid and SOMA-77 output also create a same-named `.res`
+`AnimationLibrary`. Canonical path validation keeps output inside `res://`, and
+an existing scene or companion resource is rejected rather than overwritten.
+Open a saved character scene, select `KimodoAnimationPlayer`, and choose its
+`motion` animation to inspect or edit its tracks in Godot's Animation panel.
+Successful saves are attached to the open session and selected take as saved
 artifacts; previews are never recorded as artifacts and saved artifacts are not
-yet labeled accepted.
-
-To keep a generated result, enter a project-contained `res://` directory and a
-take name, then press **Save SOMA-77 Native Take**. Canonical path validation
-rejects traversal outside the project. The dock creates a self-contained
-`.tscn` plus `.res` `AnimationLibrary`, selects the scene in the FileSystem
-dock, and adds a numeric suffix rather than overwriting an existing take.
-Saving does not interrupt or transfer ownership of the temporary preview, and
-a saved take remains usable after the backend stops.
+yet labeled accepted. Saving does not interrupt the temporary preview, and a
+saved take remains usable after the backend stops.
 
 Each workspace tab scrolls with the dock when its contents exceed the available
 editor height, including after the animation preview becomes visible.

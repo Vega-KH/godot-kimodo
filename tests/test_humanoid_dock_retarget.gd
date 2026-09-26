@@ -4,6 +4,7 @@ const MotionResponse := preload(
 	"res://addons/kimodo_motion/transport/mmcp_motion_response.gd"
 )
 const Dock := preload("res://addons/kimodo_motion/ui/ai_motion_dock.gd")
+const PreviewPanel := preload("res://addons/kimodo_motion/ui/preview_save_panel.gd")
 const MOTION_FIXTURE := "res://tests/fixtures/soma77_mmcp_1_0.gltf"
 const SAMPLE_TIMES := [0.0, 0.25, 0.5, 29.0 / 30.0]
 
@@ -18,28 +19,28 @@ func _run() -> void:
 	var dock := Dock.new()
 	root.add_child(dock)
 	await process_frame
-	var retarget := dock.find_child("RetargetHumanoid", true, false) as Button
-	var save := dock.find_child("SaveHumanoidTake", true, false) as Button
+	var save := dock.find_child("SaveSelectedTake", true, false) as Button
+	var save_type := dock.find_child("SaveTakeType", true, false) as OptionButton
 	var selector := dock.find_child("PreviewSelection", true, false) as OptionButton
 	var source: Control = dock.find_child("MotionPreview", true, false)
 	var humanoid: Control = dock.find_child("HumanoidPreview", true, false)
-	_check(retarget.disabled, "retarget begins disabled")
-	_check(save.disabled, "humanoid save begins disabled")
+	_check(dock.find_child("RetargetHumanoid", true, false) == null, "obsolete retarget button is absent")
+	_check(save.disabled, "save begins disabled")
 	_check(not selector.visible, "preview selector begins hidden")
 	_check(not dock._accept_source_motion(null), "invalid source is rejected")
 	_check(not source.has_motion(), "invalid source does not create preview state")
 
 	_check(dock._accept_source_motion(_parse_motion()), "validated motion enters the dock")
-	_check(not retarget.disabled, "retarget enables for a validated source")
 	var source_scene: Node = source.motion_scene()
-	retarget.emit_signal("pressed")
+	dock._on_retarget_humanoid_pressed()
 	_check(humanoid.has_motion(), "retarget action creates an in-memory humanoid preview")
 	_check(source.motion_scene() == source_scene, "retargeting preserves the source preview")
 	_check(humanoid.skeleton().get_bone_count() == 56, "preview uses the 56-bone profile")
 	_check(_animation(humanoid).get_track_count() == 24, "preview has 24 target tracks")
 	_check(selector.visible and not selector.disabled, "preview selector becomes available")
-	_check(not save.disabled, "humanoid save enables after retargeting")
-	_check(humanoid.visible and not source.visible, "retarget result is selected")
+	save_type.select(PreviewPanel.SaveKind.HUMANOID)
+	save_type.emit_signal("item_selected", PreviewPanel.SaveKind.HUMANOID)
+	_check(not save.disabled, "humanoid save enables after conversion")
 	var follow_root := dock.find_child("FollowRoot", true, false) as CheckButton
 	var reset_camera := dock.find_child("ResetCamera", true, false) as Button
 	var camera_controls := dock.find_child("CameraControls", true, false) as Control
@@ -123,27 +124,16 @@ func _run() -> void:
 	var relative_directory := "res://tests/.goal10_%d_%d" % [
 		OS.get_process_id(), Time.get_ticks_usec()
 	]
-	var directory := dock.find_child("HumanoidTakeDirectory", true, false) as LineEdit
-	var take_name := dock.find_child("HumanoidTakeName", true, false) as LineEdit
-	directory.text = relative_directory
-	take_name.text = "dock humanoid"
-	save.emit_signal("pressed")
 	var first_scene := relative_directory.path_join("dock humanoid.tscn")
 	var first_library := relative_directory.path_join("dock humanoid.res")
-	var save_status := dock.find_child("HumanoidTakeStatus", true, false) as Label
+	dock._preview_panel.submit_save_path(PreviewPanel.SaveKind.HUMANOID, first_scene)
+	var save_status := dock.find_child("TakeSaveStatus", true, false) as Label
 	_check(FileAccess.file_exists(first_scene), "humanoid scene is saved")
 	_check(FileAccess.file_exists(first_library), "humanoid library is saved")
 	_check(save_status.text.contains(first_scene), "saved paths are reported")
 	_check(humanoid.motion_scene() == preview_scene, "save preserves preview ownership")
-	save.emit_signal("pressed")
-	_check(
-		FileAccess.file_exists(relative_directory.path_join("dock humanoid_2.tscn")),
-		"duplicate save uses a unique scene name",
-	)
-	_check(
-		FileAccess.file_exists(relative_directory.path_join("dock humanoid_2.res")),
-		"duplicate save uses a unique library name",
-	)
+	dock._preview_panel.submit_save_path(PreviewPanel.SaveKind.HUMANOID, first_scene)
+	_check(save_status.text.contains("never overwrites"), "existing output is rejected explicitly")
 
 	var packed := ResourceLoader.load(
 		first_scene, "PackedScene", ResourceLoader.CACHE_MODE_IGNORE
@@ -155,8 +145,9 @@ func _run() -> void:
 	_check(saved_skeleton.get_bone_count() == 56, "saved scene reloads its target skeleton")
 	_compare_animations(preview_animation, saved_player.get_animation("motion"))
 
-	directory.text = "user://not-project-relative"
-	save.emit_signal("pressed")
+	dock._preview_panel.submit_save_path(
+		PreviewPanel.SaveKind.HUMANOID, "user://not-project-relative.tscn"
+	)
 	_check(save_status.text.contains("res://"), "invalid humanoid destination is rejected")
 	_check(humanoid.motion_scene() == preview_scene, "save failure preserves the preview")
 
@@ -164,7 +155,7 @@ func _run() -> void:
 	_check(dock._accept_source_motion(_parse_motion()), "a replacement source is accepted")
 	_check(not is_instance_valid(old_humanoid_scene), "replacement frees the derived preview")
 	_check(not humanoid.has_motion(), "replacement clears humanoid state")
-	_check(save.disabled and not selector.visible, "replacement resets humanoid controls")
+	_check(save.disabled and not selector.visible, "replacement resets derived controls")
 
 	var invalid_root := Node3D.new()
 	invalid_root.name = "InvalidFixture"
@@ -178,9 +169,8 @@ func _run() -> void:
 	_check(invalid_dock._accept_source_motion(_parse_motion()), "invalid-fixture source loads")
 	var invalid_source: Control = invalid_dock.find_child("MotionPreview", true, false)
 	var invalid_source_scene: Node = invalid_source.motion_scene()
-	var invalid_retarget := invalid_dock.find_child("RetargetHumanoid", true, false) as Button
-	invalid_retarget.emit_signal("pressed")
-	var error_status := invalid_dock.find_child("HumanoidRetargetStatus", true, false) as Label
+	invalid_dock._on_retarget_humanoid_pressed()
+	var error_status := invalid_dock.find_child("SessionStatus", true, false) as Label
 	_check(error_status.text.contains("Skeleton3D"), "invalid fixture gets a local retarget error")
 	_check(invalid_source.motion_scene() == invalid_source_scene, "fixture error preserves source")
 
@@ -265,7 +255,7 @@ func _check(condition: bool, description: String) -> void:
 
 func _finish() -> void:
 	if _failures.is_empty():
-		print("PASS: dock retarget preview, playback, unique save, reload, and cleanup")
+		print("PASS: automatic dock retarget, playback, explicit save, collision guard, reload, and cleanup")
 		quit(0)
 	else:
 		for failure in _failures:
