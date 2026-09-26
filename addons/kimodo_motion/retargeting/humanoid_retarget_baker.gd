@@ -301,12 +301,13 @@ static func _direction_corrected_rest_basis(
 ) -> Basis:
 	var target_index := target.find_bone(target_name)
 	var target_basis := target_global_rests[target_index].basis
-	var frame: Dictionary = MAP.orientation_frame_for_target(target_name)
+	var frame_owner := MAP.orientation_frame_owner_for_target(target_name)
+	var frame: Dictionary = MAP.orientation_frame_for_target(frame_owner)
 	if not frame.is_empty():
 		var source_frame := RestOrientation.anatomical_frame(
 			source,
 			source_global_rests,
-			MAP.source_for_target(target_name),
+			MAP.source_for_target(frame_owner),
 			MAP.source_for_target(frame["forward"]),
 			MAP.source_for_target(frame["lateral_from"]),
 			MAP.source_for_target(frame["lateral_to"]),
@@ -314,7 +315,7 @@ static func _direction_corrected_rest_basis(
 		var target_frame := RestOrientation.anatomical_frame(
 			target,
 			target_global_rests,
-			target_name,
+			frame_owner,
 			frame["forward"],
 			frame["lateral_from"],
 			frame["lateral_to"],

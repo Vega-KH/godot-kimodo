@@ -150,6 +150,45 @@ const ORIENTATION_FRAMES := {
 	},
 }
 
+# Every digit uses its hand's complete frame. Applying a separate one-vector
+# alignment to each phalanx constrains segment direction but leaves bone roll
+# ambiguous, which can create large local compensation rotations on skinned
+# rigs even while the visible skeleton chain appears correct.
+const ORIENTATION_FRAME_OWNERS := {
+	"LeftHand": "LeftHand",
+	"LeftThumbMetacarpal": "LeftHand",
+	"LeftThumbProximal": "LeftHand",
+	"LeftThumbDistal": "LeftHand",
+	"LeftIndexProximal": "LeftHand",
+	"LeftIndexIntermediate": "LeftHand",
+	"LeftIndexDistal": "LeftHand",
+	"LeftMiddleProximal": "LeftHand",
+	"LeftMiddleIntermediate": "LeftHand",
+	"LeftMiddleDistal": "LeftHand",
+	"LeftRingProximal": "LeftHand",
+	"LeftRingIntermediate": "LeftHand",
+	"LeftRingDistal": "LeftHand",
+	"LeftLittleProximal": "LeftHand",
+	"LeftLittleIntermediate": "LeftHand",
+	"LeftLittleDistal": "LeftHand",
+	"RightHand": "RightHand",
+	"RightThumbMetacarpal": "RightHand",
+	"RightThumbProximal": "RightHand",
+	"RightThumbDistal": "RightHand",
+	"RightIndexProximal": "RightHand",
+	"RightIndexIntermediate": "RightHand",
+	"RightIndexDistal": "RightHand",
+	"RightMiddleProximal": "RightHand",
+	"RightMiddleIntermediate": "RightHand",
+	"RightMiddleDistal": "RightHand",
+	"RightRingProximal": "RightHand",
+	"RightRingIntermediate": "RightHand",
+	"RightRingDistal": "RightHand",
+	"RightLittleProximal": "RightHand",
+	"RightLittleIntermediate": "RightHand",
+	"RightLittleDistal": "RightHand",
+}
+
 const COLLAPSED_SOURCE_JOINTS := [
 	"Neck1",
 	"LeftHandIndex1", "LeftHandMiddle1", "LeftHandRing1", "LeftHandPinky1",
@@ -181,6 +220,10 @@ static func source_direction_child_for_target(target_name: StringName) -> String
 
 static func orientation_frame_for_target(target_name: StringName) -> Dictionary:
 	return ORIENTATION_FRAMES.get(String(target_name), {})
+
+
+static func orientation_frame_owner_for_target(target_name: StringName) -> StringName:
+	return StringName(ORIENTATION_FRAME_OWNERS.get(String(target_name), ""))
 
 
 static func source_dispositions() -> Dictionary:

@@ -359,12 +359,13 @@ static func _direction_corrected_rest_basis(
 	var source_index := source.find_bone(canonical_name)
 	var target_index := target.find_bone(rig_profile.target_for(canonical_name))
 	var target_basis := target_global_rests[target_index].basis
-	var frame: Dictionary = HumanoidMap.orientation_frame_for_target(canonical_name)
+	var frame_owner := HumanoidMap.orientation_frame_owner_for_target(canonical_name)
+	var frame: Dictionary = HumanoidMap.orientation_frame_for_target(frame_owner)
 	if not frame.is_empty():
 		var source_frame := RestOrientation.anatomical_frame(
 			source,
 			source_global_rests,
-			canonical_name,
+			frame_owner,
 			frame["forward"],
 			frame["lateral_from"],
 			frame["lateral_to"],
@@ -372,7 +373,7 @@ static func _direction_corrected_rest_basis(
 		var target_frame := RestOrientation.anatomical_frame(
 			target,
 			target_global_rests,
-			rig_profile.target_for(canonical_name),
+			rig_profile.target_for(frame_owner),
 			rig_profile.target_for(frame["forward"]),
 			rig_profile.target_for(frame["lateral_from"]),
 			rig_profile.target_for(frame["lateral_to"]),

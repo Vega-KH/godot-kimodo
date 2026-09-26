@@ -12,6 +12,7 @@ const SOURCE_LIBRARY := "res://tests/native/generated/soma77_walk.res"
 const TARGET_FIXTURE := "res://tests/retargeting/fixtures/godot_humanoid_a_pose.tscn"
 const SAMPLE_TIME := 0.5
 const ROTATION_TOLERANCE := 0.001
+const DIGIT_LOCAL_ANGLE_TOLERANCE := deg_to_rad(6.0)
 const POSITION_TOLERANCE := 0.000001
 
 var _failures: Array[String] = []
@@ -230,6 +231,10 @@ func _validate_mapping(source: Skeleton3D, target: Skeleton3D) -> void:
 	_check(Map.source_for_target("RightThumbMetacarpal") == "RightHandThumb1", "thumb metacarpal is mapped")
 	_check(Map.source_for_target("Jaw") == "Jaw", "facial rotation targets are mapped")
 	_check(Map.ORIENTATION_FRAMES.size() == 2, "both hands have anatomical orientation frames")
+	_check(
+		Map.ORIENTATION_FRAME_OWNERS.size() == 32,
+		"both hands and all 30 mapped digits share explicit frame ownership",
+	)
 	var degenerate := target.duplicate() as Skeleton3D
 	var middle_index := degenerate.find_bone("LeftMiddleProximal")
 	var middle_rest := degenerate.get_bone_rest(middle_index)
@@ -340,6 +345,7 @@ func _validate_motion(source_root: Node, target_root: Node) -> void:
 	_check(non_commuting_bones >= 4, "fixture exercises non-commuting rest rotations")
 	_validate_segment_directions(source_skeleton, target_skeleton)
 	_validate_hand_orientation_frames(source_skeleton, target_skeleton)
+	_validate_digit_local_rotation_magnitudes(source_skeleton, target_skeleton)
 
 	var source_animation := source_player.get_animation("motion")
 	var target_animation := target_player.get_animation("motion")
@@ -434,6 +440,27 @@ func _validate_hand_orientation_frames(
 		)
 
 
+func _validate_digit_local_rotation_magnitudes(
+	source: Skeleton3D, target: Skeleton3D
+) -> void:
+	for target_name in Map.ORIENTATION_FRAME_OWNERS:
+		if target_name in Map.ORIENTATION_FRAMES:
+			continue
+		var source_index := source.find_bone(Map.source_for_target(target_name))
+		var target_index := target.find_bone(target_name)
+		var source_angle := source.get_bone_pose(source_index).basis.get_rotation_quaternion().angle_to(
+			source.get_bone_rest(source_index).basis.get_rotation_quaternion()
+		)
+		var target_angle := target.get_bone_pose(target_index).basis.get_rotation_quaternion().angle_to(
+			target.get_bone_rest(target_index).basis.get_rotation_quaternion()
+		)
+		_check(
+			absf(source_angle - target_angle) <= DIGIT_LOCAL_ANGLE_TOLERANCE,
+			"%s avoids local compensation rotation (source %.3f, target %.3f)"
+			% [target_name, rad_to_deg(source_angle), rad_to_deg(target_angle)],
+		)
+
+
 func _validate_dependency_closure(path: String) -> void:
 	var pending: Array[String] = [path]
 	var visited := {}
@@ -479,12 +506,13 @@ func _direction_corrected_rest(
 	target_rests: Array[Transform3D],
 ) -> Basis:
 	var target_index := target.find_bone(target_name)
-	var frame: Dictionary = Map.orientation_frame_for_target(target_name)
+	var frame_owner := Map.orientation_frame_owner_for_target(target_name)
+	var frame: Dictionary = Map.orientation_frame_for_target(frame_owner)
 	if not frame.is_empty():
 		var source_frame := RestOrientation.anatomical_frame(
 			source,
 			source_rests,
-			Map.source_for_target(target_name),
+			Map.source_for_target(frame_owner),
 			Map.source_for_target(frame["forward"]),
 			Map.source_for_target(frame["lateral_from"]),
 			Map.source_for_target(frame["lateral_to"]),
@@ -492,7 +520,7 @@ func _direction_corrected_rest(
 		var target_frame := RestOrientation.anatomical_frame(
 			target,
 			target_rests,
-			target_name,
+			frame_owner,
 			frame["forward"],
 			frame["lateral_from"],
 			frame["lateral_to"],
@@ -519,6 +547,8 @@ func _direction_corrected_rest(
 
 func _validate_segment_directions(source: Skeleton3D, target: Skeleton3D) -> void:
 	for target_name in Map.DIRECTION_CHILDREN:
+		if not Map.orientation_frame_owner_for_target(target_name).is_empty():
+			continue
 		var child_name: StringName = Map.direction_child_for_target(target_name)
 		var source_parent := source.find_bone(Map.source_for_target(target_name))
 		var source_child := source.find_bone(Map.source_direction_child_for_target(target_name))

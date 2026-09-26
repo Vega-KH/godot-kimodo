@@ -111,7 +111,10 @@ Godot humanoid semantic names and has been validated with Jenny; the retargeter
 itself accepts explicit canonical-to-character bone profiles so future imported
 rigs do not require Jenny-specific transfer code. Wrist transfer uses a full
 hand frame derived from the middle-finger direction and index-to-little-finger
-palm axis, preserving both flexion and roll across differing rest bases.
+palm axis, preserving both flexion and roll across differing rest bases. Every
+finger and thumb joint shares that same palm frame instead of independently
+aligning a single segment direction; this keeps bone roll determinate and
+prevents large compensating twists in skinned thumbs.
 Unmapped branch bones, such as ponytail bones under `Head`, receive no Kimodo
 tracks and continue to inherit their animated parent normally. Changing the
 character rebuilds the derived preview automatically. **Clear** removes only

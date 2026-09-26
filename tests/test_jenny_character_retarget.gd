@@ -20,6 +20,7 @@ const JENNY_PATH := "res://tests/characters/fixtures/Jenny03.glb"
 const JENNY_SHA256 := "cea2da0dead498499b0433322d9aba04681da24e587d3e2a15004acfe2afeae9"
 const ROTATION_TOLERANCE := 0.001
 const INTERPOLATED_ROTATION_TOLERANCE := 0.006
+const DIGIT_LOCAL_ANGLE_TOLERANCE := deg_to_rad(6.0)
 const POSITION_TOLERANCE := 0.000001
 const SAMPLE_TIMES := [0.0, 0.25, 0.5, 29.0 / 30.0]
 
@@ -290,6 +291,9 @@ func _validate_model_space_deltas(
 	_validate_hand_orientation_frames(
 		source_skeleton, source_player, target_skeleton, target_player, rig_profile
 	)
+	_validate_digit_local_rotation_magnitudes(
+		source_skeleton, source_player, target_skeleton, target_player, rig_profile
+	)
 
 
 func _validate_root_motion(source_player: AnimationPlayer, target_player: AnimationPlayer) -> void:
@@ -375,12 +379,13 @@ func _direction_corrected_rest(
 ) -> Basis:
 	var source_index := source.find_bone(bone_name)
 	var target_index := target.find_bone(bone_name)
-	var frame: Dictionary = HumanoidMap.orientation_frame_for_target(bone_name)
+	var frame_owner := HumanoidMap.orientation_frame_owner_for_target(bone_name)
+	var frame: Dictionary = HumanoidMap.orientation_frame_for_target(frame_owner)
 	if not frame.is_empty():
 		var source_frame := RestOrientation.anatomical_frame(
 			source,
 			source_rests,
-			bone_name,
+			frame_owner,
 			frame["forward"],
 			frame["lateral_from"],
 			frame["lateral_to"],
@@ -388,7 +393,7 @@ func _direction_corrected_rest(
 		var target_frame := RestOrientation.anatomical_frame(
 			target,
 			target_rests,
-			bone_name,
+			frame_owner,
 			frame["forward"],
 			frame["lateral_from"],
 			frame["lateral_to"],
@@ -422,6 +427,8 @@ func _validate_segment_directions(
 		source_player.seek(time, true)
 		target_player.seek(time, true)
 		for bone_name in HumanoidMap.DIRECTION_CHILDREN:
+			if not HumanoidMap.orientation_frame_owner_for_target(bone_name).is_empty():
+				continue
 			var child_name: StringName = HumanoidMap.direction_child_for_target(bone_name)
 			var source_parent := source.find_bone(bone_name)
 			var source_child := source.find_bone(child_name)
@@ -486,6 +493,34 @@ func _validate_hand_orientation_frames(
 					target_animated.get_rotation_quaternion()
 				) <= INTERPOLATED_ROTATION_TOLERANCE,
 				"%s anatomical frame matches at %.3f" % [canonical_name, time],
+			)
+
+
+func _validate_digit_local_rotation_magnitudes(
+	source: Skeleton3D,
+	source_player: AnimationPlayer,
+	target: Skeleton3D,
+	target_player: AnimationPlayer,
+	rig_profile: RefCounted,
+) -> void:
+	for time in SAMPLE_TIMES:
+		source_player.seek(time, true)
+		target_player.seek(time, true)
+		for canonical_name in HumanoidMap.ORIENTATION_FRAME_OWNERS:
+			if canonical_name in HumanoidMap.ORIENTATION_FRAMES:
+				continue
+			var source_index := source.find_bone(canonical_name)
+			var target_index := target.find_bone(rig_profile.target_for(canonical_name))
+			var source_angle := source.get_bone_pose(source_index).basis.get_rotation_quaternion().angle_to(
+				source.get_bone_rest(source_index).basis.get_rotation_quaternion()
+			)
+			var target_angle := target.get_bone_pose(target_index).basis.get_rotation_quaternion().angle_to(
+				target.get_bone_rest(target_index).basis.get_rotation_quaternion()
+			)
+			_check(
+				absf(source_angle - target_angle) <= DIGIT_LOCAL_ANGLE_TOLERANCE,
+				"%s avoids local compensation at %.3f (source %.3f, target %.3f)"
+				% [canonical_name, time, rad_to_deg(source_angle), rad_to_deg(target_angle)],
 			)
 
 
