@@ -5,6 +5,7 @@ extends RefCounted
 const Session := preload("res://addons/kimodo_motion/domain/motion_session.gd")
 const MotionDraft := preload("res://addons/kimodo_motion/domain/motion_draft.gd")
 const ProjectPaths := preload("res://addons/kimodo_motion/domain/project_paths.gd")
+const TakeArchive := preload("res://addons/kimodo_motion/domain/take_archive_service.gd")
 const DEFAULT_DIRECTORY := "res://animations/kimodo/sessions"
 
 
@@ -43,59 +44,6 @@ static func set_target(session: Resource, scene_path: String, skeleton: Skeleton
 	session.target_skeleton_signature = skeleton_signature(skeleton)
 	session.touch()
 	return {"ok": true, "signature": session.target_skeleton_signature}
-
-
-static func append_generation_record(
-	session: Resource,
-	request_json: String,
-	capabilities_json: String,
-	response_bytes: PackedByteArray,
-	capabilities: RefCounted,
-	motions: Array,
-) -> Dictionary:
-	if request_json.is_empty() or capabilities_json.is_empty() or response_bytes.is_empty():
-		return _error("missing_provenance", "Validated generation provenance is incomplete.")
-	if capabilities == null or motions.is_empty():
-		return _error("missing_generation", "The validated generation has no takes.")
-	var record_id := Session.create_uuid()
-	var request_payload: Variant = JSON.parse_string(request_json)
-	var request_options: Dictionary = (
-		request_payload.get("options", {}) if request_payload is Dictionary else {}
-	)
-	var take_summaries: Array[Dictionary] = []
-	for index in motions.size():
-		var motion: RefCounted = motions[index]
-		take_summaries.append({
-			"take_id": "%s:%d" % [record_id, index],
-			"sample_index": index,
-			"sample_name": String(motion.animation_name),
-			"content_sha256": motion.content_sha256,
-			"duration_seconds": motion.duration_seconds,
-			"payload_status": "transient",
-		})
-	var record := {
-		"record_id": record_id,
-		"generated_at_utc": Session.utc_now(),
-		"request_json": request_json,
-		"request_sha256": sha256_text(request_json),
-		"request_seed": int(request_options.get("seed", session.seed)),
-		"requested_take_count": int(request_options.get("num_samples", motions.size())),
-		"capabilities_json": capabilities_json,
-		"capabilities_sha256": sha256_text(capabilities_json),
-		"response_sha256": sha256_bytes(response_bytes),
-		"protocol_version": capabilities.protocol_version,
-		"model_id": capabilities.model_id,
-		"fps": capabilities.fps,
-		"skeleton_signature": sha256_text(canonical_json(capabilities.skeleton_payload)),
-		"target_scene_path": session.target_scene_path,
-		"target_skeleton_signature": session.target_skeleton_signature,
-		"takes": take_summaries,
-	}
-	session.generation_records.append(record.duplicate(true))
-	session.active_generation_index = session.generation_records.size() - 1
-	session.selected_take_id = take_summaries[0]["take_id"]
-	session.touch()
-	return {"ok": true, "record": record.duplicate(true)}
 
 
 static func record_artifact(
@@ -182,54 +130,20 @@ static func open(path: String) -> Dictionary:
 		return _error("missing_session", "The selected session does not exist.", validation["path"])
 	var loaded := ResourceLoader.load(validation["path"], "Resource", ResourceLoader.CACHE_MODE_IGNORE)
 	if loaded is MotionDraft:
-		if loaded.schema_version != MotionDraft.SCHEMA_VERSION:
-			return _error(
-				"unsupported_draft",
-				"This Goal 13 draft schema cannot be migrated safely.",
-				"Received schema version %d; expected %d." % [
-					loaded.schema_version, MotionDraft.SCHEMA_VERSION,
-				],
-			)
-		var original_hash := FileAccess.get_sha256(validation["path"])
-		var session := migrate_draft(loaded)
-		var migrated_result := save_as(session, DEFAULT_DIRECTORY, session.title.to_snake_case())
-		if not migrated_result["ok"]:
-			return migrated_result
-		if FileAccess.get_sha256(validation["path"]) != original_hash:
-			return _error("migration_failed", "Draft migration changed the original resource.")
-		return _load_result(session, migrated_result["path"], validation["path"])
+		return _error(
+			"unsupported_legacy",
+			"Pre-Goal-16 drafts and sessions are disposable test data and are not migrated.",
+		)
 	if not loaded is Session:
 		return _error("invalid_session", "The selected resource is not a Kimodo session or draft.")
 	var session_error := validate_session(loaded)
 	if not session_error.is_empty():
 		return _error("invalid_session", session_error)
-	return _load_result(loaded, validation["path"])
-
-
-static func migrate_draft(draft: Resource) -> Resource:
-	var session := Session.create_new("Migrated motion session")
-	session.session_id = draft.draft_id
-	session.migrated_from_draft_id = draft.draft_id
-	session.migrated_from_draft_schema_version = draft.schema_version
-	session.migrated_from_draft_updated_at_utc = draft.updated_at_utc
-	session.migrated_requested_candidate_count = draft.requested_candidate_count
-	session.created_at_utc = draft.created_at_utc
-	session.updated_at_utc = draft.updated_at_utc
-	session.target_scene_path = draft.target_scene_path
-	session.target_skeleton_signature = draft.target_skeleton_signature
-	session.rig_profile_path = draft.rig_profile_path
-	session.animation_destination = draft.animation_destination
-	session.prompt = draft.prompt
-	session.duration_frames = draft.duration_frames
-	session.seed = draft.seed
-	session.diffusion_steps = draft.diffusion_steps
-	session.requested_take_count = clampi(draft.requested_candidate_count, 1, 2)
-	session.generation_preset = draft.generation_preset
-	session.notes = draft.notes
-	session.generation_records.assign(draft.generation_records.duplicate(true))
-	session.active_generation_index = draft.active_generation_index
-	session.artifacts = draft.artifacts.duplicate(true)
-	return session
+	var recovery := TakeArchive.recover_orphans(loaded, validation["path"])
+	if not recovery["ok"]:
+		return recovery
+	TakeArchive.refresh_availability(loaded)
+	return _load_result(loaded, validation["path"], int(recovery["recovered"]))
 
 
 static func list_sessions(limit := 8) -> Array[Dictionary]:
@@ -262,12 +176,46 @@ static func validate_session(session: Resource) -> String:
 		]
 	if session.session_id.is_empty():
 		return "KimodoSession has no stable session ID."
+	var uuid_pattern := RegEx.create_from_string(
+		"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+	)
+	if uuid_pattern.search(session.session_id) == null:
+		return "KimodoSession has an invalid session ID."
 	if session.created_at_utc.is_empty() or session.updated_at_utc.is_empty():
 		return "KimodoSession timestamps are incomplete."
 	if not session.target_scene_path.is_empty():
 		var target_result := ProjectPaths.validate_file(session.target_scene_path)
 		if not target_result["ok"]:
 			return target_result["message"]
+	var take_ids := {}
+	for record in session.generation_records:
+		if not record is Dictionary or String(record.get("record_id", "")).is_empty():
+			return "KimodoSession contains an invalid generation record."
+		var takes: Variant = record.get("takes", [])
+		if not takes is Array or takes.is_empty():
+			return "KimodoSession generation contains no archived takes."
+		for take in takes:
+			if not take is Dictionary or String(take.get("take_id", "")).is_empty():
+				return "KimodoSession contains an invalid take record."
+			if take_ids.has(take["take_id"]):
+				return "KimodoSession contains duplicate take IDs."
+			take_ids[take["take_id"]] = true
+			if take.get("payload_status", "") not in ["archived", "deleted"]:
+				return "KimodoSession contains a non-durable take payload."
+			if not TakeArchive.paths_belong_to_session(session.session_id, take):
+				return "KimodoSession take archive path is outside its owning session."
+			for field in [
+				"archive_path", "archive_file_sha256", "archive_content_sha256",
+				"rig_snapshot_path", "rig_signature", "source_contract_id",
+			]:
+				if String(take.get(field, "")).is_empty():
+					return "KimodoSession take archive metadata is incomplete."
+			if int(take.get("source_contract_version", 0)) <= 0 or int(
+				take.get("source_rig_schema_version", 0)
+			) <= 0:
+				return "KimodoSession take archive version metadata is incomplete."
+	if not session.selected_take_id.is_empty() and not take_ids.has(session.selected_take_id):
+		return "KimodoSession selected take does not exist."
 	return ""
 
 
@@ -318,7 +266,7 @@ static func sha256_bytes(data: PackedByteArray) -> String:
 	return context.finish().hex_encode()
 
 
-static func _load_result(session: Resource, path: String, migrated_from := "") -> Dictionary:
+static func _load_result(session: Resource, path: String, recovered_generations := 0) -> Dictionary:
 	var available: Array[String] = []
 	var missing: Array[String] = []
 	for artifact_key in session.artifacts:
@@ -331,7 +279,7 @@ static func _load_result(session: Resource, path: String, migrated_from := "") -
 			missing.append(String(artifact_key))
 	return {
 		"ok": true, "session": session, "path": path,
-		"migrated_from": migrated_from,
+		"recovered_generations": recovered_generations,
 		"available_artifacts": available, "missing_artifacts": missing,
 	}
 

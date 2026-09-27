@@ -3,6 +3,7 @@ extends SceneTree
 const DraftStore := preload("res://addons/kimodo_motion/domain/motion_draft_store.gd")
 const SessionStore := preload("res://addons/kimodo_motion/domain/motion_session_store.gd")
 const SessionController := preload("res://addons/kimodo_motion/domain/motion_session_controller.gd")
+const Session := preload("res://addons/kimodo_motion/domain/motion_session.gd")
 const TEST_DIRECTORY := "res://tests/.generated_sessions"
 
 var _failures: Array[String] = []
@@ -26,7 +27,7 @@ func _run() -> void:
 		var rejected_save := SessionStore.save(session, saved["path"])
 		_check(not rejected_save["ok"], "invalid session update is rejected")
 		_check(FileAccess.get_sha256(saved["path"]) == stable_hash, "failed update leaves prior session byte-identical")
-		session.schema_version = 1
+		session.schema_version = Session.SCHEMA_VERSION
 		var opened := SessionStore.open(saved["path"])
 		_check(opened["ok"], "session opens")
 		if opened["ok"]:
@@ -34,59 +35,24 @@ func _run() -> void:
 			_check(opened["session"].requested_take_count == 2, "take count round-trips")
 
 	var draft := DraftStore.create_draft()
-	DraftStore.sync_editable_intent(draft, "Legacy jump", 30, 1234, 100)
-	draft.target_scene_path = "res://tests/characters/fixtures/Jenny03.glb"
-	draft.target_skeleton_signature = "legacy-target-signature"
-	draft.rig_profile_path = "res://profiles/legacy_profile.tres"
-	draft.animation_destination = "Character/AnimationPlayer:library"
-	draft.requested_candidate_count = 16
-	draft.generation_preset = "legacy-quality"
-	draft.notes = "Keep these migration notes exactly."
-	draft.generation_records.assign([{
-		"record_id": "legacy-record",
-		"request_json": "{\"legacy\":true}",
-		"response_sha256": "legacy-response-hash",
-	}])
-	draft.active_generation_index = 0
-	draft.artifacts = {
-		"character_scene": {
-			"status": "saved",
-			"path": "res://animations/kimodo/legacy_character.tscn",
-			"generation_record_id": "legacy-record",
-		}
-	}
-	var draft_saved := DraftStore.save_as(draft, TEST_DIRECTORY, "legacy")
-	_check(draft_saved["ok"], "legacy migration fixture saves")
+	var draft_saved := DraftStore.save_as(draft, TEST_DIRECTORY, "legacy_draft")
+	_check(draft_saved["ok"], "legacy draft fixture saves")
 	if draft_saved["ok"]:
 		_paths.append(draft_saved["path"])
 		var original_hash := FileAccess.get_sha256(draft_saved["path"])
-		var original_updated_at: String = draft.updated_at_utc
-		var migrated := SessionStore.open(draft_saved["path"])
-		_check(migrated["ok"], "Goal 13 draft migrates")
-		if migrated["ok"]:
-			var migrated_session: Resource = migrated["session"]
-			_paths.append(migrated["path"])
-			_check(migrated_session.session_id == draft.draft_id, "migration preserves identity")
-			_check(migrated_session.migrated_from_draft_id == draft.draft_id, "migration records source identity")
-			_check(migrated_session.migrated_from_draft_schema_version == draft.schema_version, "migration preserves source schema")
-			_check(migrated_session.migrated_from_draft_updated_at_utc == original_updated_at, "migration preserves source timestamp")
-			_check(migrated_session.migrated_requested_candidate_count == draft.requested_candidate_count, "migration preserves legacy requested count")
-			_check(migrated_session.target_scene_path == draft.target_scene_path, "migration preserves target path")
-			_check(migrated_session.target_skeleton_signature == draft.target_skeleton_signature, "migration preserves target signature")
-			_check(migrated_session.rig_profile_path == draft.rig_profile_path, "migration preserves rig profile")
-			_check(migrated_session.animation_destination == draft.animation_destination, "migration preserves destination")
-			_check(migrated_session.prompt == draft.prompt, "migration preserves prompt")
-			_check(migrated_session.duration_frames == draft.duration_frames, "migration preserves duration")
-			_check(migrated_session.seed == draft.seed, "migration preserves seed")
-			_check(migrated_session.diffusion_steps == draft.diffusion_steps, "migration preserves steps")
-			_check(migrated_session.requested_take_count == 2, "migration safely normalizes the active tested count")
-			_check(migrated_session.generation_preset == draft.generation_preset, "migration preserves preset")
-			_check(migrated_session.notes == draft.notes, "migration preserves notes")
-			_check(migrated_session.generation_records == draft.generation_records, "migration preserves exact generation records")
-			_check(migrated_session.active_generation_index == draft.active_generation_index, "migration preserves active generation")
-			_check(migrated_session.artifacts == draft.artifacts, "migration preserves exact artifact links")
-			_check(not migrated["migrated_from"].is_empty(), "migration reports its source")
-		_check(FileAccess.get_sha256(draft_saved["path"]) == original_hash, "migration leaves draft byte-identical")
+		var rejected_draft := SessionStore.open(draft_saved["path"])
+		_check(not rejected_draft["ok"], "pre-Goal-16 draft is rejected without migration")
+		_check(FileAccess.get_sha256(draft_saved["path"]) == original_hash, "legacy rejection leaves draft byte-identical")
+
+	var legacy_session := SessionStore.create_session("Disposable v1 session")
+	legacy_session.schema_version = 1
+	var legacy_session_path := TEST_DIRECTORY.path_join("legacy_session.tres")
+	_check(ResourceSaver.save(legacy_session, legacy_session_path) == OK, "legacy session fixture saves directly")
+	_paths.append(legacy_session_path)
+	var legacy_hash := FileAccess.get_sha256(legacy_session_path)
+	var rejected_session := SessionStore.open(legacy_session_path)
+	_check(not rejected_session["ok"], "pre-Goal-16 session is rejected without migration")
+	_check(FileAccess.get_sha256(legacy_session_path) == legacy_hash, "legacy rejection leaves session byte-identical")
 
 	var controller := SessionController.new()
 	root.add_child(controller)
@@ -136,7 +102,7 @@ func _check(condition: bool, description: String) -> void:
 
 func _finish() -> void:
 	if _failures.is_empty():
-		print("PASS: KimodoSession round-trip, autosave, and lossless draft migration")
+		print("PASS: KimodoSession v2 round-trip, autosave, and explicit legacy rejection")
 		quit(0)
 	else:
 		for failure in _failures:

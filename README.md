@@ -11,10 +11,10 @@ can be saved as native SOMA-77 data, retargeted through a deterministic Godot
 humanoid fixture, previewed on a selected exact-name compatible character, and
 saved on the repository's skinned Auto-Rig Pro acceptance character.
 
-The intended basic product workflow is not complete yet: take switching now
-works, but saving an artifact is not yet an explicit undoable Accept operation
-into an animation destination, and full-skeleton finger retargeting remains a
-known gap.
+The intended basic product workflow is not complete yet: durable take history,
+full-skeleton retargeting, and rig-aware export now work, but saving an artifact
+is not yet an explicit undoable Accept operation into an artist-selected
+animation destination.
 
 ## Reference environment
 
@@ -50,16 +50,18 @@ plugin restart, native baking, and short playback scene runs, with:
 Enable **Kimodo Motion Studio** under **Project > Project Settings > Plugins**.
 The **AI Motion** dock appears on the right at a quiet session chooser. Create a
 named session or open a recent/project-owned `.tres`; backend, generation,
-preview, and output controls do not appear until a session is active. Existing
-Goal 13 `MotionDraft` resources can be opened and are migrated to a new
-`KimodoSession` without rewriting the original file.
+preview, and output controls do not appear until a session is active. Goal 16
+introduces session schema v2. Earlier test sessions and Goal 13 `MotionDraft`
+resources are rejected unchanged rather than migrated or assigned archives
+that never existed.
 
 Sessions save atomically under `res://animations/kimodo/sessions`. There is no
 manual session Save button: editable fields are debounced, while session
 creation, target changes, Generate, animation saves, session switches, and
 editor shutdown force persistence. A visible Saved/Saving/error indicator
-reports the state. The active workspace is divided into **Generate** and
-**Preview & Save** tabs instead of presenting every control at once.
+reports the state. The active workspace is divided into **Generate**,
+**Preview & Save**, and **History** tabs instead of presenting every control at
+once.
 
 The connection defaults to `http://127.0.0.1:8000`. Start
 `kimodo-godot-server`, press **Connect**, and confirm the summary reports
@@ -80,19 +82,31 @@ response is converted through the humanoid intermediate and onto the selected
 character automatically. It starts playing in the combined **Preview & Save**
 workspace with shared Pause/Play, Loop, and timeline-scrub controls. Use the
 take selector there to switch variations without changing playback time or the
-camera; the selected preview is also the take that Save exports. The open session appends an immutable
+camera; the selected preview is also the take that Save exports. Before the UI
+reports success, every take in the batch is stored as a lightweight SOMA-77
+`AnimationLibrary` and verified. The open session then appends an immutable
 generation record containing the exact request and capability documents,
 protocol/model/fps/skeleton identity, UTC time, and request/capability/response
 SHA-256 hashes plus a stable ID, sample index/name, and decoded-motion hash for
 each take. All takes in one response share the request seed. Editing the next
 prompt does not rewrite that record.
 
-Unsaved take payloads are intentionally transient. They remain in memory while
-the session is open and are discarded on session switch or editor shutdown;
-the session retains only their provenance and summaries. Only a take the user
-explicitly saves becomes a durable animation artifact. Reopening offline shows
-the prior take summaries honestly but does not pretend discarded previews are
-still playable.
+Automatic source archives live under
+`res://animations/kimodo/session_data/<session_id>/`. A deduplicated, versioned
+rig snapshot records the exact SOMA-77 hierarchy and rest transforms associated
+with each library. Its contract version and complete-content signature prevent
+a later rig revision from silently reinterpreting old motion. Generation
+manifests and same-parent staging make an interrupted promotion/session-save
+window recoverable; controlled failures commit none of the batch.
+
+The **History** tab groups generations chronologically by prompt and time and
+lists every take in response order. Selecting an available historical take
+reloads it without the backend, reconstructs its archived SOMA source, and
+regenerates the current humanoid and character previews on demand. These scene
+instances and derived previews are disposable cache. Source takes remain until
+the user confirms deletion; deletion retains a truthful tombstone and never
+removes a separately saved animation or Character Preview. Missing or corrupt
+archive files are reported rather than regenerated or hidden.
 
 The preview follows planar root motion by default so locomotion remains in
 frame. Left-drag directly on the preview to orbit, use the mouse wheel to zoom,

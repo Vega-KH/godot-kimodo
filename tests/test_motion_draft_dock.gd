@@ -6,6 +6,7 @@ const GenerationClient := preload("res://addons/kimodo_motion/transport/mmcp_gen
 const MotionResponse := preload("res://addons/kimodo_motion/transport/mmcp_motion_response.gd")
 const Dock := preload("res://addons/kimodo_motion/ui/ai_motion_dock.gd")
 const PreviewPanel := preload("res://addons/kimodo_motion/ui/preview_save_panel.gd")
+const Archive := preload("res://addons/kimodo_motion/domain/take_archive_service.gd")
 const JENNY := preload("res://tests/characters/fixtures/Jenny03.glb")
 const JENNY_PATH := "res://tests/characters/fixtures/Jenny03.glb"
 const CAPABILITIES_FIXTURE := "res://tests/fixtures/soma77_capabilities.json"
@@ -13,6 +14,7 @@ const MOTION_FIXTURE := "res://tests/fixtures/soma77_mmcp_1_0.gltf"
 
 var _failures: Array[String] = []
 var _cleanup_paths: Array[String] = []
+var _cleanup_directories: Array[String] = []
 
 
 func _init() -> void:
@@ -38,6 +40,7 @@ func _run() -> void:
 	(dock.find_child("NewSession", true, false) as Button).emit_signal("pressed")
 	await process_frame
 	_cleanup_paths.append(dock._draft_path)
+	_cleanup_directories.append(Archive.DATA_ROOT.path_join(dock._draft.session_id))
 	_check(dock._draft != null and dock._draft.title == "Goal 14 dock test", "new session is active")
 	_check(FileAccess.file_exists(dock._draft_path), "new session is immediately durable")
 	_check(not landing.visible and generate.is_visible_in_tree(), "workspace replaces the chooser")
@@ -66,12 +69,16 @@ func _run() -> void:
 	generation.last_response_bytes = response_bytes
 	generation._latest_motions.assign(parsed["motions"])
 	dock._on_motion_ready()
-	_check(dock._take_set.size() == 2, "dock retains two transient takes")
+	_check(dock._take_set.size() == 2, "dock retains two active takes")
 	_check(dock._draft.generation_records.size() == 1, "session records generation provenance")
 	_check(dock._draft.active_generation_record()["request_seed"] == 1234, "take batch shares the request seed")
 	var summaries: Array = dock._draft.active_take_summaries()
 	_check(summaries.size() == 2, "session persists two take summaries")
-	_check(summaries[0]["payload_status"] == "transient", "take payload is not claimed durable")
+	_check(summaries[0]["payload_status"] == "archived", "take payload is durably archived")
+	_check(FileAccess.file_exists(summaries[0]["archive_path"]), "first source archive exists")
+	_check(FileAccess.file_exists(summaries[1]["archive_path"]), "second source archive exists")
+	var history := dock.find_child("TakeHistory", true, false) as Tree
+	_check(history != null and history.get_root().get_first_child() != null, "History groups the generated batch")
 	var selector := dock.find_child("TakeSelection", true, false) as OptionButton
 	_check(selector.visible and selector.item_count == 2, "take selector exposes both takes")
 	var preview: Control = dock.find_child("MotionPreview", true, false)
@@ -108,7 +115,7 @@ func _run() -> void:
 	(dock.find_child("SwitchSession", true, false) as Button).emit_signal("pressed")
 	await process_frame
 	_check(landing.visible and dock._draft == null, "switch returns to session chooser")
-	_check(dock._take_set.is_empty(), "unsaved take payloads are discarded on close")
+	_check(dock._take_set.is_empty(), "derived preview cache is discarded on close")
 	_check(generation.last_request_json.is_empty(), "session switch discards transient request text")
 	_check(generation.last_response_bytes.is_empty(), "session switch discards transient response bytes")
 	_check((dock.find_child("RecentSessions", true, false) as OptionButton).item_count >= 1, "saved session appears in recent sessions")
@@ -126,10 +133,18 @@ func _run() -> void:
 	await create_timer(0.6).timeout
 	_check(dock._draft != null and dock._draft.prompt == prompt.text, "offline reopen restores intent")
 	_check(FileAccess.get_sha256(session_path) == before_open_hash, "opening a session does not dirty or rewrite it")
-	_check(dock._draft.active_take_summaries().size() == 2, "offline reopen restores summaries")
+	_check(dock._draft.active_take_summaries().size() == 2, "offline reopen restores durable summaries")
 	_check(dock._draft.artifacts.size() == 1, "offline reopen restores saved selected-take artifact")
-	_check(dock._take_set.is_empty(), "offline reopen does not invent transient payloads")
-	_check((dock.find_child("SaveSelectedTake", true, false) as Button).disabled, "save requires a live take")
+	_check(dock._take_set.is_empty(), "offline reopen lazily waits for history selection")
+	_check((dock.find_child("SaveSelectedTake", true, false) as Button).disabled, "save waits for a selected history take")
+	dock._on_history_take_activated(0, summaries[1]["take_id"])
+	_check(dock._take_set.size() == 1, "historical take rehydrates offline")
+	_check(character_preview.has_motion(), "historical take rebuilds character preview")
+	_check(not (dock.find_child("SaveSelectedTake", true, false) as Button).disabled, "rehydrated take can be explicitly saved")
+	var first_archive_path := String(summaries[0]["archive_path"])
+	dock._on_history_delete_confirmed(summaries[0]["take_id"])
+	_check(not FileAccess.file_exists(first_archive_path), "confirmed deletion removes only selected source archive")
+	_check(FileAccess.file_exists(saved_library), "confirmed source deletion preserves explicit saved artifact")
 	_check(FileAccess.get_sha256(JENNY_PATH) == fixture_hash, "offline reopen leaves Jenny unchanged")
 
 	dock.queue_free()
@@ -159,6 +174,22 @@ func _cleanup() -> void:
 	var output_directory := "res://tests/.goal14_selected_take_%d" % OS.get_process_id()
 	if DirAccess.dir_exists_absolute(ProjectSettings.globalize_path(output_directory)):
 		DirAccess.remove_absolute(ProjectSettings.globalize_path(output_directory))
+	for directory in _cleanup_directories:
+		_remove_tree(directory)
+
+
+func _remove_tree(path: String) -> void:
+	var absolute := ProjectSettings.globalize_path(path)
+	if not DirAccess.dir_exists_absolute(absolute):
+		return
+	var directory := DirAccess.open(path)
+	if directory == null:
+		return
+	for filename in directory.get_files():
+		DirAccess.remove_absolute(absolute.path_join(filename))
+	for child in directory.get_directories():
+		_remove_tree(path.path_join(child))
+	DirAccess.remove_absolute(absolute)
 
 
 func _check(condition: bool, description: String) -> void:
@@ -168,7 +199,7 @@ func _check(condition: bool, description: String) -> void:
 
 func _finish() -> void:
 	if _failures.is_empty():
-		print("PASS: session-first dock, transient takes, switching, and offline reopen")
+		print("PASS: session-first durable history, switching, deletion, and offline reopen")
 		quit(0)
 	else:
 		for failure in _failures:

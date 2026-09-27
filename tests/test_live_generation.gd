@@ -4,9 +4,11 @@ const CapabilitiesClient := preload("res://addons/kimodo_motion/transport/mmcp_c
 const GenerationClient := preload("res://addons/kimodo_motion/transport/mmcp_generation_client.gd")
 const Dock := preload("res://addons/kimodo_motion/ui/ai_motion_dock.gd")
 const PreviewPanel := preload("res://addons/kimodo_motion/ui/preview_save_panel.gd")
+const Archive := preload("res://addons/kimodo_motion/domain/take_archive_service.gd")
 const JENNY := preload("res://tests/characters/fixtures/Jenny03.glb")
 
 var _session_path := ""
+var _session_data_path := ""
 
 
 func _init() -> void:
@@ -53,6 +55,7 @@ func _run() -> void:
 	(dock.find_child("NewSession", true, false) as Button).emit_signal("pressed")
 	await process_frame
 	_session_path = dock._draft_path
+	_session_data_path = Archive.DATA_ROOT.path_join(dock._draft.session_id)
 	dock._on_character_target_changed(JENNY)
 
 	var url_edit: LineEdit = dock.find_child("BackendUrl", true, false)
@@ -151,3 +154,20 @@ func _fail(message: String) -> void:
 func _cleanup_session() -> void:
 	if not _session_path.is_empty() and FileAccess.file_exists(_session_path):
 		DirAccess.remove_absolute(ProjectSettings.globalize_path(_session_path))
+	_remove_tree(_session_data_path)
+
+
+func _remove_tree(path: String) -> void:
+	if path.is_empty():
+		return
+	var absolute := ProjectSettings.globalize_path(path)
+	if not DirAccess.dir_exists_absolute(absolute):
+		return
+	var directory := DirAccess.open(path)
+	if directory == null:
+		return
+	for filename in directory.get_files():
+		DirAccess.remove_absolute(absolute.path_join(filename))
+	for child in directory.get_directories():
+		_remove_tree(path.path_join(child))
+	DirAccess.remove_absolute(absolute)

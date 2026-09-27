@@ -6,6 +6,7 @@ signal session_changed(session: Resource, path: String)
 signal save_state_changed(state: String, message: String)
 
 const SessionStore := preload("res://addons/kimodo_motion/domain/motion_session_store.gd")
+const TakeArchive := preload("res://addons/kimodo_motion/domain/take_archive_service.gd")
 
 var session: Resource
 var path := ""
@@ -60,6 +61,40 @@ func mark_dirty() -> void:
 	save_state_changed.emit("saving", "Saving…")
 	if _save_timer != null:
 		_save_timer.start(debounce_seconds)
+
+
+func archive_generation(
+	request_json: String,
+	capabilities_json: String,
+	response_bytes: PackedByteArray,
+	capabilities: RefCounted,
+	motions: Array,
+	test_options: Dictionary = {},
+) -> Dictionary:
+	if session == null or path.is_empty():
+		return {"ok": false, "message": "Open a session before archiving a generation."}
+	if _save_timer != null:
+		_save_timer.stop()
+	var intent_result := flush()
+	if not intent_result["ok"]:
+		return intent_result
+	save_state_changed.emit("saving", "Archiving takes…")
+	var result := TakeArchive.archive_generation(
+		session,
+		path,
+		request_json,
+		capabilities_json,
+		response_bytes,
+		capabilities,
+		motions,
+		test_options,
+	)
+	if result["ok"]:
+		dirty = false
+		save_state_changed.emit("saved", "Saved")
+	else:
+		save_state_changed.emit("error", result["message"])
+	return result
 
 
 func flush() -> Dictionary:

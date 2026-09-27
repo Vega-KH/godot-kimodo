@@ -12,13 +12,8 @@ static func save_library(
 	output_directory: String,
 	requested_stem: String = "kimodo_motion",
 ) -> Dictionary:
-	var source_player := _find_first(imported_root, "AnimationPlayer") as AnimationPlayer
-	if source_player == null:
-		push_error("Cannot save native motion without an AnimationPlayer")
-		return {}
-	var source_names := source_player.get_animation_list()
-	if source_names.size() != 1:
-		push_error("Expected exactly one source animation, found %d" % source_names.size())
+	var library := create_library(imported_root)
+	if library == null:
 		return {}
 	var directory_result := ProjectPaths.ensure_directory(output_directory)
 	if not directory_result["ok"]:
@@ -27,21 +22,6 @@ static func save_library(
 	output_directory = directory_result["path"]
 	var stem := _unique_library_stem(output_directory, requested_stem)
 	var library_path := output_directory.path_join(stem + ".res")
-	var native_animation := source_player.get_animation(source_names[0]).duplicate(true) as Animation
-	for track in native_animation.get_track_count():
-		var source_path := native_animation.track_get_path(track)
-		if source_path.get_subname_count() != 1:
-			push_error("Unsupported imported animation track path: %s" % source_path)
-			return {}
-		native_animation.track_set_path(
-			track,
-			NodePath("%s:%s" % [SKELETON_NODE_NAME, source_path.get_subname(0)]),
-		)
-	native_animation.resource_name = ANIMATION_NAME
-	var library := AnimationLibrary.new()
-	if library.add_animation(ANIMATION_NAME, native_animation) != OK:
-		push_error("Cannot add native motion to its AnimationLibrary")
-		return {}
 	if ResourceSaver.save(library, library_path) != OK:
 		push_error("Cannot save native AnimationLibrary: %s" % library_path)
 		return {}
@@ -50,6 +30,33 @@ static func save_library(
 		"library_path": library_path,
 		"animation_name": ANIMATION_NAME,
 	}
+
+
+static func create_library(imported_root: Node) -> AnimationLibrary:
+	var source_player := _find_first(imported_root, "AnimationPlayer") as AnimationPlayer
+	if source_player == null:
+		push_error("Cannot create native motion without an AnimationPlayer")
+		return null
+	var source_names := source_player.get_animation_list()
+	if source_names.size() != 1:
+		push_error("Expected exactly one source animation, found %d" % source_names.size())
+		return null
+	var native_animation := source_player.get_animation(source_names[0]).duplicate(true) as Animation
+	for track in native_animation.get_track_count():
+		var source_path := native_animation.track_get_path(track)
+		if source_path.get_subname_count() != 1:
+			push_error("Unsupported imported animation track path: %s" % source_path)
+			return null
+		native_animation.track_set_path(
+			track,
+			NodePath("%s:%s" % [SKELETON_NODE_NAME, source_path.get_subname(0)]),
+		)
+	native_animation.resource_name = ANIMATION_NAME
+	var library := AnimationLibrary.new()
+	if library.add_animation(ANIMATION_NAME, native_animation) != OK:
+		push_error("Cannot add native motion to its AnimationLibrary")
+		return null
+	return library
 
 
 static func bake(

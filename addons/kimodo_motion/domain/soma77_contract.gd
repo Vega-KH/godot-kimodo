@@ -1,6 +1,9 @@
 class_name Soma77Contract
 extends RefCounted
 
+const CONTRACT_ID := "soma77"
+const CONTRACT_VERSION := 1
+
 const JOINT_NAMES := [
 	"Hips", "Spine1", "Spine2", "Chest", "Neck1", "Neck2", "Head", "HeadEnd", "Jaw",
 	"LeftEye", "RightEye", "LeftShoulder", "LeftArm", "LeftForeArm", "LeftHand",

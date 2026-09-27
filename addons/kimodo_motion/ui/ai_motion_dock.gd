@@ -13,6 +13,8 @@ const ProjectPaths := preload("res://addons/kimodo_motion/domain/project_paths.g
 const GenerationTakePanel := preload("res://addons/kimodo_motion/ui/generation_take_panel.gd")
 const PreviewSavePanel := preload("res://addons/kimodo_motion/ui/preview_save_panel.gd")
 const SessionShell := preload("res://addons/kimodo_motion/ui/session_shell.gd")
+const HistoryPanel := preload("res://addons/kimodo_motion/ui/history_panel.gd")
+const TakeArchive := preload("res://addons/kimodo_motion/domain/take_archive_service.gd")
 const NativeAnimationBaker := preload(
 	"res://addons/kimodo_motion/animation/native_animation_baker.gd"
 )
@@ -29,7 +31,7 @@ const HumanoidCharacterBaker := preload(
 var _client: Node
 var _generation_client: Node
 var _editor_plugin: EditorPlugin
-# Kept as aliases during the lossless Goal 13 migration; both now hold a KimodoSession.
+# Historical variable names retained locally; both hold the active KimodoSession.
 var _draft: Resource
 var _draft_path := ""
 var _restoring_draft := false
@@ -48,6 +50,7 @@ var _workspace_default_visibility: Dictionary = {}
 var _workspace_tabs: TabContainer
 var _generation_panel: Control
 var _preview_panel: Control
+var _history_panel: Control
 var _draft_status: Label
 var _session_details_button: Button
 var _draft_details: RichTextLabel
@@ -163,6 +166,11 @@ func _build_ui() -> void:
 	_preview_panel = PreviewSavePanel.new()
 	_workspace_tabs.add_child(_preview_panel)
 	_bind_preview_panel_controls()
+
+	_history_panel = HistoryPanel.new()
+	_workspace_tabs.add_child(_history_panel)
+	_history_panel.take_activated.connect(_on_history_take_activated)
+	_history_panel.delete_confirmed.connect(_on_history_delete_confirmed)
 
 
 func _bind_generation_panel_controls() -> void:
@@ -283,7 +291,7 @@ func _on_open_session_pressed() -> void:
 	elif _session_resource_picker is LineEdit:
 		path = (_session_resource_picker as LineEdit).text.strip_edges()
 	if path.is_empty():
-		_set_session_landing_error("Choose a KimodoSession or Goal 13 MotionDraft resource.")
+		_set_session_landing_error("Choose a current KimodoSession resource.")
 		return
 	_open_session_path(path)
 
@@ -325,9 +333,14 @@ func _activate_session(session: Resource, path: String, load_result: Dictionary)
 	_restoring_draft = false
 	_session_active_label.text = session.title
 	_draft_status.modulate = Color(0.25, 0.85, 0.45)
-	_draft_status.text = "Session ready. Unsaved take previews are intentionally transient."
-	if not String(load_result.get("migrated_from", "")).is_empty():
-		_draft_status.text = "Migrated Goal 13 draft to %s; the original was left unchanged." % path
+	_draft_status.text = "Session ready. Generated takes are archived automatically."
+	var recovered := int(load_result.get("recovered_generations", 0))
+	if recovered > 0:
+		_draft_status.text = "Recovered %d complete archived generation%s." % [
+			recovered, "" if recovered == 1 else "s",
+		]
+	_history_panel.set_session(session)
+	_history_panel.select_take(session.selected_take_id)
 	_set_workspace_visible(true)
 	_update_draft_details()
 	_update_generation_availability()
@@ -404,7 +417,7 @@ func _clear_generated_previews() -> void:
 		_generation_client.reset()
 	if _generation_status != null:
 		_generation_status.modulate = Color(0.7, 0.72, 0.76)
-		_generation_status.text = "No transient takes are loaded for this session."
+		_generation_status.text = "No archived take is loaded for preview."
 	_update_generation_availability()
 
 
@@ -473,7 +486,13 @@ func _update_draft_details() -> void:
 			String(record.get("response_sha256", "")).left(12),
 		])
 		var takes: Array = record.get("takes", [])
-		_draft_details.append_text("Take summaries: %d (payloads are transient)\n" % takes.size())
+		var available := 0
+		for take in takes:
+			if take.get("availability", "") == "available":
+				available += 1
+		_draft_details.append_text(
+			"Archived takes: %d available of %d\n" % [available, takes.size()]
+		)
 	var artifact_types: Array[String] = []
 	for artifact_type in _draft.artifacts:
 		artifact_types.append(String(artifact_type))
@@ -656,32 +675,113 @@ func _update_generation_availability() -> void:
 func _on_motion_ready() -> void:
 	_release_and_free_take_motions()
 	var received_motions: Array[RefCounted] = _generation_client.take_latest_motions()
-	if not _preview_panel.replace_takes(received_motions):
+	if received_motions.is_empty():
 		_set_draft_error("The validated response did not contain any takes.")
 		return
 	_sync_draft_from_ui()
-	var provenance_result := SessionStore.append_generation_record(
-		_draft,
+	_session_controller.mark_dirty()
+	var archive_result: Dictionary = _session_controller.archive_generation(
 		_generation_client.last_request_json,
 		_client.last_response_json,
 		_generation_client.last_response_bytes,
 		_client.capabilities,
-		_preview_panel.all_motions(),
+		received_motions,
 	)
-	if not provenance_result["ok"]:
-		_set_draft_error(provenance_result["message"])
+	if not _preview_panel.replace_takes(received_motions):
+		_set_draft_error("The validated response could not be opened for preview.")
+		return
+	if not archive_result["ok"]:
+		_set_draft_error(archive_result["message"])
+		return
+	if not _preview_current_take_on_character():
+		_set_draft_error("The generated take could not be previewed on the selected character.")
+		return
+	_draft_status.modulate = Color(0.25, 0.85, 0.45)
+	_draft_status.text = "%d take%s archived and ready." % [
+		_take_set.size(), "" if _take_set.size() == 1 else "s",
+	]
+	_history_panel.set_session(_draft)
+	_history_panel.select_take(_draft.selected_take_id)
+	_update_draft_details()
+
+
+func _on_history_take_activated(generation_index: int, take_id: String) -> void:
+	if _draft == null or generation_index < 0 or generation_index >= _draft.generation_records.size():
+		return
+	var take := _find_session_take(take_id)
+	if take.is_empty():
+		_set_draft_error("The selected archived take is no longer in this session.")
+		return
+	var loaded := TakeArchive.load_motion(take)
+	if not loaded["ok"]:
+		_set_draft_error(loaded["message"])
+		_history_panel.status.text = loaded["message"]
+		return
+	_release_and_free_take_motions()
+	var motions: Array[RefCounted] = [loaded["motion"]]
+	if not _preview_panel.replace_takes(motions):
+		if is_instance_valid(loaded["motion"].scene):
+			loaded["motion"].scene.free()
+		_set_draft_error("The archived take could not be opened for preview.")
+		return
+	_draft.active_generation_index = generation_index
+	_draft.selected_take_id = take_id
+	if not _preview_current_take_on_character():
+		_set_draft_error("The archived take could not be previewed on the selected character.")
+		return
+	_session_controller.mark_dirty()
+	_draft_status.modulate = Color(0.25, 0.85, 0.45)
+	_draft_status.text = "Archived take loaded offline and converted on demand."
+	_history_panel.status.text = "Selected source archive is active in Preview & Save."
+	_history_panel.select_take(take_id)
+	_update_save_availability()
+	_update_draft_details()
+
+
+func _on_history_delete_confirmed(take_id: String) -> void:
+	if _draft == null:
+		return
+	var was_selected: bool = _draft.selected_take_id == take_id
+	var result := TakeArchive.delete_take(_draft, _draft_path, take_id)
+	if not result["ok"]:
+		_set_draft_error(result["message"])
+		_history_panel.status.text = result["message"]
+		return
+	_session_controller.dirty = false
+	if was_selected:
 		_release_and_free_take_motions()
-	else:
-		if not _preview_current_take_on_character():
-			_set_draft_error("The generated take could not be previewed on the selected character.")
-			return
-		_draft_status.modulate = Color(0.25, 0.85, 0.45)
-		_draft_status.text = "%d transient take%s ready; provenance autosaved." % [
-			_take_set.size(), "" if _take_set.size() == 1 else "s",
-		]
-		_session_controller.mark_dirty()
-		_flush_session()
-		_update_draft_details()
+		_draft.selected_take_id = ""
+		var fallback := _first_available_take()
+		if not fallback.is_empty():
+			_on_history_take_activated(fallback["generation_index"], fallback["take_id"])
+	_history_panel.set_session(_draft)
+	_history_panel.select_take(_draft.selected_take_id)
+	_history_panel.status.text = "Archived source deleted; explicit saved artifacts were kept."
+	_update_generation_availability()
+	_update_draft_details()
+
+
+func _find_session_take(take_id: String) -> Dictionary:
+	if _draft == null:
+		return {}
+	for record in _draft.generation_records:
+		for take in record.get("takes", []):
+			if take.get("take_id", "") == take_id:
+				return take.duplicate(true)
+	return {}
+
+
+func _first_available_take() -> Dictionary:
+	if _draft == null:
+		return {}
+	for generation_index in range(_draft.generation_records.size() - 1, -1, -1):
+		for take in _draft.generation_records[generation_index].get("takes", []):
+			if take.get("availability", "") == "available":
+				return {
+					"generation_index": generation_index,
+					"take_id": String(take.get("take_id", "")),
+				}
+	return {}
 
 
 func _accept_source_motion(motion: RefCounted) -> bool:

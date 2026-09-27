@@ -46,7 +46,7 @@ func _run() -> void:
 		await process_frame
 		_check(dock._draft != null, "new session becomes active")
 		_check(not landing.visible, "session chooser hides while a session is active")
-		_check(workspace.get_tab_count() == 2, "active workspace has focused Generate and Preview & Save tabs")
+		_check(workspace.get_tab_count() == 3, "active workspace has focused Generate, Preview & Save, and History tabs")
 		_check(status.text.contains("Disconnected"), "cycle %d begins disconnected" % cycle)
 		_check(scroll != null, "dock content is wrapped in a scroll container")
 		_check(

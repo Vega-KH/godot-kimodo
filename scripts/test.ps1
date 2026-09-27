@@ -59,8 +59,11 @@ Invoke-GodotCheck -Name 'Focused editor UI component ownership' -GodotArguments 
 Invoke-GodotCheck -Name 'MotionDraft persistence and provenance' -GodotArguments @(
     '--headless', '--path', '.', '--script', 'res://tests/test_motion_draft.gd'
 )
-Invoke-GodotCheck -Name 'KimodoSession persistence and migration' -GodotArguments @(
+Invoke-GodotCheck -Name 'KimodoSession persistence and legacy rejection' -GodotArguments @(
     '--headless', '--path', '.', '--script', 'res://tests/test_motion_session.gd'
+)
+Invoke-GodotCheck -Name 'Durable generated-take archive' -GodotArguments @(
+    '--headless', '--path', '.', '--script', 'res://tests/test_take_archive.gd'
 )
 Invoke-GodotCheck -Name 'Multiple take response contract' -GodotArguments @(
     '--headless', '--path', '.', '--script', 'res://tests/test_multiple_takes.gd'

@@ -2,17 +2,13 @@
 class_name KimodoSession
 extends Resource
 
-const SCHEMA_VERSION := 1
+const SCHEMA_VERSION := 2
 
 @export var schema_version := SCHEMA_VERSION
 @export var session_id := ""
 @export var title := "Untitled session"
 @export var created_at_utc := ""
 @export var updated_at_utc := ""
-@export var migrated_from_draft_id := ""
-@export var migrated_from_draft_schema_version := 0
-@export var migrated_from_draft_updated_at_utc := ""
-@export var migrated_requested_candidate_count := 0
 
 @export_file("*.tscn", "*.scn", "*.glb", "*.gltf") var target_scene_path := ""
 @export var target_skeleton_signature := ""

@@ -4,6 +4,8 @@ const GenerationPanel := preload(
 	"res://addons/kimodo_motion/ui/generation_take_panel.gd"
 )
 const PreviewPanel := preload("res://addons/kimodo_motion/ui/preview_save_panel.gd")
+const HistoryPanel := preload("res://addons/kimodo_motion/ui/history_panel.gd")
+const Session := preload("res://addons/kimodo_motion/domain/motion_session.gd")
 const MotionResponse := preload(
 	"res://addons/kimodo_motion/transport/mmcp_motion_response.gd"
 )
@@ -31,7 +33,7 @@ func _run() -> void:
 	root.add_child(preview)
 	await process_frame
 	var motions: Array[RefCounted] = [_parse_motion(), _parse_motion()]
-	_check(preview.replace_takes(motions), "preview panel accepts transient takes")
+	_check(preview.replace_takes(motions), "preview panel accepts in-memory takes")
 	_check(preview.take_selection.item_count == 2, "preview panel owns take selection")
 	preview.seek_all(0.4)
 	preview.loop_toggle.button_pressed = false
@@ -68,9 +70,40 @@ func _run() -> void:
 		"preview panel emits one typed save-path request",
 	)
 
+	var history := HistoryPanel.new()
+	root.add_child(history)
+	await process_frame
+	var session := Session.create_new("History component")
+	session.generation_records.assign([{
+		"record_id": "record",
+		"prompt": "A careful wave",
+		"generated_at_utc": "2026-09-26T23:45:00Z",
+		"takes": [{
+			"take_id": "record:0",
+			"sample_name": "sample_0",
+			"availability": "available",
+		}],
+	}])
+	history.set_session(session)
+	var generation_item := history.tree.get_root().get_first_child()
+	var take_item := generation_item.get_first_child()
+	take_item.select(0)
+	var opened := [""]
+	history.take_activated.connect(func(_generation_index: int, take_id: String) -> void:
+		opened[0] = take_id
+	)
+	history.open_button.emit_signal("pressed")
+	_check(opened[0] == "record:0", "history panel emits selected durable take")
+	var deleted := [""]
+	history.delete_confirmed.connect(func(take_id: String) -> void: deleted[0] = take_id)
+	history._request_delete()
+	history._confirm_delete()
+	_check(deleted[0] == "record:0", "history panel confirms explicit source deletion")
+
 	preview.clear_takes()
 	generation.queue_free()
 	preview.queue_free()
+	history.queue_free()
 	await process_frame
 	_check(root.get_child_count() == 0, "focused UI components clean up their nodes")
 	_finish()
@@ -91,7 +124,7 @@ func _check(condition: bool, description: String) -> void:
 
 func _finish() -> void:
 	if _failures.is_empty():
-		print("PASS: focused generation and preview/save component ownership")
+		print("PASS: focused generation, preview/save, and history component ownership")
 		quit(0)
 	else:
 		for failure in _failures:
