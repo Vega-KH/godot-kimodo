@@ -216,6 +216,34 @@ static func validate_session(session: Resource) -> String:
 				return "KimodoSession take archive version metadata is incomplete."
 	if not session.selected_take_id.is_empty() and not take_ids.has(session.selected_take_id):
 		return "KimodoSession selected take does not exist."
+	if not session.animation_destination.is_empty():
+		var destination_result := ProjectPaths.validate_file(
+			session.animation_destination, "res"
+		)
+		if not destination_result["ok"]:
+			return "KimodoSession animation destination is invalid."
+	for acceptance_key in session.acceptances:
+		var acceptance: Variant = session.acceptances[acceptance_key]
+		if not acceptance is Dictionary:
+			return "KimodoSession contains invalid acceptance provenance."
+		for field in [
+			"acceptance_id", "accepted_at_utc", "take_id", "generation_record_id",
+			"target_scene_path", "target_skeleton_signature", "destination_path",
+			"animation_name", "mode", "animation_sha256", "library_file_sha256",
+		]:
+			if String(acceptance.get(field, "")).is_empty():
+				return "KimodoSession acceptance provenance is incomplete."
+		if acceptance.get("status", "") != "accepted":
+			return "KimodoSession acceptance has an invalid state."
+		if acceptance.get("mode", "") not in ["add", "replace"]:
+			return "KimodoSession acceptance has an invalid mode."
+		if not take_ids.has(acceptance["take_id"]):
+			return "KimodoSession acceptance references an unknown take."
+		var acceptance_path := ProjectPaths.validate_file(
+			String(acceptance["destination_path"]), "res"
+		)
+		if not acceptance_path["ok"]:
+			return "KimodoSession acceptance destination is invalid."
 	return ""
 
 

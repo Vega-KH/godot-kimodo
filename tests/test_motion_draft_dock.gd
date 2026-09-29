@@ -103,13 +103,33 @@ func _run() -> void:
 	_check(FileAccess.get_sha256(JENNY_PATH) == fixture_hash, "session generation never mutates Jenny")
 	var output_directory := "res://tests/.goal14_selected_take_%d" % OS.get_process_id()
 	var saved_library := output_directory.path_join("selected_take.res")
+	var accepted_library := output_directory.path_join("production_library.res")
 	dock._preview_panel.submit_save_path(PreviewPanel.SaveKind.SOMA77_ANIMATION, saved_library)
 	_cleanup_paths.append(saved_library)
+	_cleanup_paths.append(accepted_library)
 	_check(FileAccess.file_exists(saved_library), "selected take saves explicitly")
 	for artifact in dock._draft.artifacts.values():
 		_check(artifact["take_id"] == summaries[1]["take_id"], "saved artifacts belong only to the selected take")
 		_check(artifact["rig_layer"] == "soma77", "saved artifact records its rig layer")
 		_check(artifact["artifact_form"] == "animation_library", "saved artifact records its form")
+	dock._preview_panel.set_accept_destination(accepted_library)
+	dock._preview_panel.accept_name.text = "friendly_wave"
+	dock._preview_panel.accept_button.emit_signal("pressed")
+	_check(FileAccess.file_exists(accepted_library), "selected take accepts into a production library")
+	_check(dock._draft.acceptances.size() == 1, "session records acceptance separately from Save")
+	dock._fallback_undo_redo.undo()
+	_check(FileAccess.file_exists(accepted_library), "Godot Undo retains the new library container")
+	var undone_library := ResourceLoader.load(
+		accepted_library, "AnimationLibrary", ResourceLoader.CACHE_MODE_IGNORE
+	) as AnimationLibrary
+	_check(
+		undone_library != null and undone_library.get_animation_list().is_empty(),
+		"Godot Undo removes the accepted animation from the retained library",
+	)
+	_check(dock._draft.acceptances.is_empty(), "Godot Undo restores acceptance provenance")
+	dock._fallback_undo_redo.redo()
+	_check(FileAccess.file_exists(accepted_library), "Godot Redo restores accepted library")
+	_check(dock._draft.acceptances.size() == 1, "Godot Redo restores acceptance provenance")
 
 	var session_path: String = dock._draft_path
 	(dock.find_child("SwitchSession", true, false) as Button).emit_signal("pressed")
@@ -135,16 +155,18 @@ func _run() -> void:
 	_check(FileAccess.get_sha256(session_path) == before_open_hash, "opening a session does not dirty or rewrite it")
 	_check(dock._draft.active_take_summaries().size() == 2, "offline reopen restores durable summaries")
 	_check(dock._draft.artifacts.size() == 1, "offline reopen restores saved selected-take artifact")
+	_check(dock._draft.acceptances.size() == 1, "offline reopen restores acceptance provenance")
 	_check(dock._take_set.is_empty(), "offline reopen lazily waits for history selection")
 	_check((dock.find_child("SaveSelectedTake", true, false) as Button).disabled, "save waits for a selected history take")
 	dock._on_history_take_activated(0, summaries[1]["take_id"])
 	_check(dock._take_set.size() == 1, "historical take rehydrates offline")
 	_check(character_preview.has_motion(), "historical take rebuilds character preview")
 	_check(not (dock.find_child("SaveSelectedTake", true, false) as Button).disabled, "rehydrated take can be explicitly saved")
-	var first_archive_path := String(summaries[0]["archive_path"])
-	dock._on_history_delete_confirmed(summaries[0]["take_id"])
-	_check(not FileAccess.file_exists(first_archive_path), "confirmed deletion removes only selected source archive")
+	var accepted_archive_path := String(summaries[1]["archive_path"])
+	dock._on_history_delete_confirmed(summaries[1]["take_id"])
+	_check(not FileAccess.file_exists(accepted_archive_path), "confirmed deletion removes accepted source archive")
 	_check(FileAccess.file_exists(saved_library), "confirmed source deletion preserves explicit saved artifact")
+	_check(FileAccess.file_exists(accepted_library), "confirmed source deletion preserves accepted animation")
 	_check(FileAccess.get_sha256(JENNY_PATH) == fixture_hash, "offline reopen leaves Jenny unchanged")
 
 	dock.queue_free()

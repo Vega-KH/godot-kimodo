@@ -15,6 +15,9 @@ const PreviewSavePanel := preload("res://addons/kimodo_motion/ui/preview_save_pa
 const SessionShell := preload("res://addons/kimodo_motion/ui/session_shell.gd")
 const HistoryPanel := preload("res://addons/kimodo_motion/ui/history_panel.gd")
 const TakeArchive := preload("res://addons/kimodo_motion/domain/take_archive_service.gd")
+const AcceptanceService := preload(
+	"res://addons/kimodo_motion/domain/acceptance_service.gd"
+)
 const NativeAnimationBaker := preload(
 	"res://addons/kimodo_motion/animation/native_animation_baker.gd"
 )
@@ -92,6 +95,8 @@ var _save_button: Button
 var _save_status: Label
 var _humanoid_fixture: PackedScene
 var _character_target: PackedScene
+var _acceptance_transactions: Array[RefCounted] = []
+var _fallback_undo_redo: UndoRedo
 
 
 func configure(
@@ -116,6 +121,8 @@ func _ready() -> void:
 	_session_controller.name = "SessionController"
 	add_child(_session_controller)
 	_session_controller.save_state_changed.connect(_on_session_save_state_changed)
+	if _editor_plugin == null:
+		_fallback_undo_redo = UndoRedo.new()
 	_build_ui()
 	_bind_session_inputs()
 	_refresh_recent_sessions()
@@ -127,6 +134,11 @@ func _ready() -> void:
 
 func _exit_tree() -> void:
 	_release_and_free_take_motions()
+	if _fallback_undo_redo != null:
+		_fallback_undo_redo.clear_history(false)
+		_fallback_undo_redo.free()
+		_fallback_undo_redo = null
+	_acceptance_transactions.clear()
 
 
 func _build_ui() -> void:
@@ -226,6 +238,7 @@ func _bind_preview_panel_controls() -> void:
 	_save_status = _preview_panel.save_status
 	_preview_panel.take_activated.connect(_on_take_selected)
 	_preview_panel.save_path_selected.connect(_on_save_path_selected)
+	_preview_panel.accept_requested.connect(_on_accept_requested)
 
 
 func _build_session_landing() -> void:
@@ -330,6 +343,7 @@ func _activate_session(session: Resource, path: String, load_result: Dictionary)
 	if _character_target_picker is EditorResourcePicker:
 		(_character_target_picker as EditorResourcePicker).edited_resource = target_resource
 	_on_character_target_changed(target_resource)
+	_preview_panel.set_accept_destination(session.animation_destination)
 	_restoring_draft = false
 	_session_active_label.text = session.title
 	_draft_status.modulate = Color(0.25, 0.85, 0.45)
@@ -356,6 +370,7 @@ func _on_switch_session_pressed() -> void:
 		return
 	_draft = null
 	_draft_path = ""
+	_preview_panel.set_accept_destination("")
 	_clear_generated_previews()
 	_set_workspace_visible(false)
 	_refresh_recent_sessions()
@@ -507,6 +522,19 @@ func _update_draft_details() -> void:
 			var availability := "available" if FileAccess.file_exists(artifact_path) else "missing"
 			_draft_details.append_text("  %s (%s): " % [artifact_type, availability])
 			_append_draft_path(artifact_path)
+			_draft_details.append_text("\n")
+	if _draft.acceptances.is_empty():
+		_draft_details.append_text("\nAccepted animations: none")
+	else:
+		_draft_details.append_text("\nAccepted animations:\n")
+		for acceptance in _draft.acceptances.values():
+			_draft_details.append_text(
+				"  %s (%s): " % [
+					acceptance.get("animation_name", "unnamed"),
+					acceptance.get("mode", "add"),
+				]
+			)
+			_append_draft_path(String(acceptance.get("destination_path", "")))
 			_draft_details.append_text("\n")
 
 
@@ -1137,6 +1165,83 @@ func _set_save_error(message: String) -> void:
 	_preview_panel.show_save_error(message)
 
 
+func _on_accept_requested(
+	destination_path: String, animation_name: String, replace_existing: bool
+) -> void:
+	if _draft == null or _draft_path.is_empty():
+		_preview_panel.show_accept_error("Open a session before accepting animation.")
+		return
+	if not _preview_panel.has_character() or _character_target == null:
+		_preview_panel.show_accept_error("Preview an available take on a character first.")
+		return
+	if not _flush_session():
+		_preview_panel.show_accept_error("The session could not be saved before acceptance.")
+		return
+	var result := AcceptanceService.prepare(
+		_draft,
+		_draft_path,
+		_character_preview.motion_scene(),
+		_character_target,
+		destination_path,
+		animation_name,
+		replace_existing,
+	)
+	if not result["ok"]:
+		if result.get("code", "") == "name_collision":
+			_preview_panel.confirm_replace(
+				String(result.get("path", destination_path)),
+				String(result.get("animation_name", animation_name)),
+			)
+		else:
+			_preview_panel.show_accept_error(result["message"])
+		return
+	var transaction: RefCounted = result["transaction"]
+	_acceptance_transactions.append(transaction)
+	transaction.state_changed.connect(_on_acceptance_state_changed)
+	transaction.apply_after()
+	if not transaction.last_result["ok"]:
+		_acceptance_transactions.erase(transaction)
+		return
+	var action_name := "%s Kimodo animation '%s'" % [
+		"Replace" if result["mode"] == "replace" else "Accept",
+		result["record"]["animation_name"],
+	]
+	if _editor_plugin != null and is_instance_valid(_editor_plugin):
+		var editor_undo := _editor_plugin.get_undo_redo()
+		editor_undo.create_action(action_name, UndoRedo.MERGE_DISABLE, _draft)
+		editor_undo.add_do_method(transaction, &"apply_after")
+		editor_undo.add_undo_method(transaction, &"apply_before")
+		editor_undo.commit_action(false)
+	else:
+		_fallback_undo_redo.create_action(action_name)
+		_fallback_undo_redo.add_do_method(Callable(transaction, "apply_after"))
+		_fallback_undo_redo.add_undo_method(Callable(transaction, "apply_before"))
+		_fallback_undo_redo.commit_action(false)
+
+
+func _on_acceptance_state_changed(state: String, result: Dictionary) -> void:
+	if not result["ok"]:
+		_preview_panel.show_accept_error(result["message"])
+		return
+	_session_controller.dirty = false
+	if state == "accepted":
+		_preview_panel.set_accept_destination(result["path"])
+		_preview_panel.show_accept_result(
+			"Accepted '%s'. Use Godot Undo to restore the prior library."
+			% result["animation_name"]
+		)
+		_refresh_saved_resource(result["path"])
+	else:
+		var undo_message := "Acceptance undone. Redo restores '%s'." % result["animation_name"]
+		if result.get("created_destination", false):
+			undo_message = (
+				"Acceptance undone. The empty library was retained; Redo restores '%s'."
+				% result["animation_name"]
+			)
+		_preview_panel.show_accept_result(undo_message)
+	_update_draft_details()
+
+
 func _update_save_availability() -> void:
 	if _preview_panel == null:
 		return
@@ -1148,6 +1253,10 @@ func _update_save_availability() -> void:
 		_preview_panel.has_source(),
 		_preview_panel.has_humanoid(),
 		_preview_panel.has_character(),
+		generating,
+	)
+	_preview_panel.set_accept_availability(
+		_preview_panel.has_character() and _draft != null and not _draft.selected_take_id.is_empty(),
 		generating,
 	)
 

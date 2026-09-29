@@ -69,6 +69,29 @@ func _run() -> void:
 		selected_save == [PreviewPanel.SaveKind.SOMA77_ANIMATION, "res://tests/take.res"],
 		"preview panel emits one typed save-path request",
 	)
+	preview.set_accept_destination("res://tests/production.res")
+	preview.set_accept_availability(true, false)
+	_check(not preview.accept_button.disabled, "Accept enables for character motion and a destination")
+	var accepted := ["", "", false]
+	preview.accept_requested.connect(func(path: String, name: String, replace: bool) -> void:
+		accepted.assign([path, name, replace])
+	)
+	preview.accept_name.text = "friendly_wave"
+	preview.accept_button.emit_signal("pressed")
+	_check(
+		accepted == ["res://tests/production.res", "friendly_wave", false],
+		"preview panel emits one typed acceptance request",
+	)
+	preview.accept_library_mode.select(1)
+	preview.accept_library_mode.emit_signal("item_selected", 1)
+	_check(
+		preview.accept_destination.is_empty() and preview.accept_button.disabled,
+		"changing existing/new destination mode requires a fresh file choice",
+	)
+	preview.confirm_replace("res://tests/production.res", "friendly_wave")
+	preview.replace_dialog.emit_signal("confirmed")
+	preview.replace_dialog.hide()
+	_check(accepted[2], "preview panel emits explicit Replace only after confirmation")
 
 	var history := HistoryPanel.new()
 	root.add_child(history)

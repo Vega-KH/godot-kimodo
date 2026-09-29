@@ -12,9 +12,9 @@ humanoid fixture, previewed on a selected exact-name compatible character, and
 saved on the repository's skinned Auto-Rig Pro acceptance character.
 
 The intended basic product workflow is not complete yet: durable take history,
-full-skeleton retargeting, and rig-aware export now work, but saving an artifact
-is not yet an explicit undoable Accept operation into an artist-selected
-animation destination.
+full-skeleton retargeting, rig-aware export, and explicit undoable acceptance
+into a production animation library now work. General rig setup and final
+workflow hardening remain before the basic stage is complete.
 
 ## Reference environment
 
@@ -39,7 +39,8 @@ records the Jenny fixture provenance, root-bone decision, import measurements,
 and manual character playback controls.
 
 Run the complete offline suite, including capability transport failure cases,
-plugin restart, native baking, and short playback scene runs, with:
+plugin restart, durable archives, production-library acceptance, native baking,
+and short playback scene runs, with:
 
 ```powershell
 & .\scripts\test.ps1
@@ -148,6 +149,28 @@ panel. Successful saves record their rig layer, artifact form, target signature
 where relevant, and selected-take provenance in the open session.
 Saving does not interrupt the temporary preview, and a saved animation remains
 usable after the backend stops.
+
+**Save** and **Accept** serve different purposes. Save creates a standalone
+export and rejects an existing filename. The separate **Accept into production
+library** section adds the selected character take under an artist-chosen name
+inside a new or existing project-owned `.res` `AnimationLibrary`. A collision
+does nothing until the artist explicitly confirms Replace. Add, Replace, and
+new-library creation are each one Godot editor action: Undo restores the exact
+captured library bytes and prior session acceptance state, while Redo restores
+the same captured animation without contacting the backend or retargeting it
+again. Undoing the first animation added to a newly created destination retains
+the now-empty library as an artist-owned project resource; delete that container
+manually if it is no longer wanted.
+
+Acceptance preflights the current target signature, AnimationPlayer root,
+duration, finite keys, every character track path, and a staged library reload
+against a clean target instance. Paths outside `res://`, `.godot` import data,
+read-only files, wrong resource types, and unresolved tracks are rejected before
+the production file changes. The session records take/generation identity,
+target signature, destination and animation name, Add/Replace mode, timestamps,
+and semantic/file hashes separately from Save artifacts and automatic archives.
+Deleting an accepted source take removes only its automatic archive; the
+production library remains editable and playable without Kimodo or the backend.
 
 Each workspace tab scrolls with the dock when its contents exceed the available
 editor height, including after the animation preview becomes visible.

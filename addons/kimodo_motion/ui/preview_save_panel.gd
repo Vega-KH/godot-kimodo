@@ -4,6 +4,7 @@ extends VBoxContainer
 
 signal take_activated(index: int)
 signal save_path_selected(kind: int, path: String)
+signal accept_requested(path: String, animation_name: String, replace_existing: bool)
 
 enum SaveKind {
 	CHARACTER_ANIMATION,
@@ -32,6 +33,17 @@ var save_kind: OptionButton
 var save_button: Button
 var save_status: Label
 var save_dialog: FileDialog
+var accept_library_mode: OptionButton
+var accept_library_button: Button
+var accept_library_label: Label
+var accept_name: LineEdit
+var accept_button: Button
+var accept_status: Label
+var accept_dialog: FileDialog
+var replace_dialog: ConfirmationDialog
+var accept_destination := ""
+var _accept_character_ready := false
+var _accept_generating := false
 var _scrub_dragging := false
 
 
@@ -101,6 +113,7 @@ func clear_takes() -> void:
 		(follow_root_toggle.get_parent() as Control).visible = false
 	clear_save_status()
 	set_save_availability(false, false, false, false)
+	set_accept_availability(false, false)
 
 
 func all_motions() -> Array:
@@ -209,6 +222,42 @@ func clear_save_status() -> void:
 	if save_status != null:
 		save_status.visible = false
 		save_status.text = ""
+
+
+func set_accept_destination(path: String) -> void:
+	accept_destination = path
+	if accept_library_label != null:
+		accept_library_label.text = path if not path.is_empty() else "No production library selected."
+		accept_library_label.tooltip_text = path
+	_update_accept_button()
+
+
+func set_accept_availability(character_ready: bool, generating: bool) -> void:
+	_accept_character_ready = character_ready
+	_accept_generating = generating
+	_update_accept_button()
+
+
+func show_accept_result(message: String) -> void:
+	accept_status.visible = true
+	accept_status.modulate = Color(0.25, 0.85, 0.45)
+	accept_status.text = message
+
+
+func show_accept_error(message: String) -> void:
+	accept_status.visible = true
+	accept_status.modulate = Color(1.0, 0.35, 0.3)
+	accept_status.text = message
+
+
+func confirm_replace(path: String, animation_name: String) -> void:
+	accept_destination = path
+	accept_name.text = animation_name
+	replace_dialog.dialog_text = (
+		"Animation '%s' already exists in\n%s\n\nReplace it? Undo will restore the current animation."
+		% [animation_name, path]
+	)
+	replace_dialog.popup_centered()
 
 
 func submit_save_path(kind: int, path: String) -> void:
@@ -339,6 +388,68 @@ func _build() -> void:
 	save_dialog.file_selected.connect(_on_file_selected)
 	add_child(save_dialog)
 
+	add_child(HSeparator.new())
+	var accept_title := Label.new()
+	accept_title.text = "Accept into production library"
+	accept_title.add_theme_font_size_override("font_size", 15)
+	add_child(accept_title)
+	var library_row := HBoxContainer.new()
+	add_child(library_row)
+	accept_library_mode = OptionButton.new()
+	accept_library_mode.name = "AcceptanceLibraryMode"
+	accept_library_mode.add_item("Existing library", 0)
+	accept_library_mode.add_item("New library", 1)
+	accept_library_mode.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	accept_library_mode.item_selected.connect(_on_accept_library_mode_selected)
+	library_row.add_child(accept_library_mode)
+	accept_library_button = Button.new()
+	accept_library_button.name = "ChooseAcceptanceLibrary"
+	accept_library_button.text = "Choose…"
+	accept_library_button.pressed.connect(_open_accept_dialog)
+	library_row.add_child(accept_library_button)
+	accept_library_label = Label.new()
+	accept_library_label.name = "AcceptanceLibraryPath"
+	accept_library_label.text = "No production library selected."
+	accept_library_label.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+	add_child(accept_library_label)
+	var accept_row := HBoxContainer.new()
+	add_child(accept_row)
+	accept_name = LineEdit.new()
+	accept_name.name = "AcceptanceAnimationName"
+	accept_name.placeholder_text = "Animation name"
+	accept_name.text = "motion"
+	accept_name.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	accept_name.text_changed.connect(func(_value: String) -> void:
+		accept_status.visible = false
+		_update_accept_button()
+	)
+	accept_row.add_child(accept_name)
+	accept_button = Button.new()
+	accept_button.name = "AcceptSelectedTake"
+	accept_button.text = "Accept"
+	accept_button.disabled = true
+	accept_button.pressed.connect(_on_accept_pressed)
+	accept_row.add_child(accept_button)
+	accept_status = Label.new()
+	accept_status.name = "AcceptanceStatus"
+	accept_status.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	accept_status.visible = false
+	add_child(accept_status)
+	accept_dialog = FileDialog.new()
+	accept_dialog.name = "AcceptanceLibraryDialog"
+	accept_dialog.access = FileDialog.ACCESS_RESOURCES
+	accept_dialog.file_mode = FileDialog.FILE_MODE_SAVE_FILE
+	accept_dialog.filters = PackedStringArray(["*.res ; Godot AnimationLibrary"])
+	accept_dialog.file_selected.connect(_on_accept_file_selected)
+	add_child(accept_dialog)
+	replace_dialog = ConfirmationDialog.new()
+	replace_dialog.name = "ReplaceAnimationConfirmation"
+	replace_dialog.title = "Replace existing animation?"
+	replace_dialog.confirmed.connect(func() -> void:
+		accept_requested.emit(accept_destination, accept_name.text, true)
+	)
+	add_child(replace_dialog)
+
 
 func _on_take_selected(index: int) -> void:
 	if index == take_set.active_index:
@@ -445,3 +556,51 @@ func _open_save_dialog() -> void:
 
 func _on_file_selected(path: String) -> void:
 	save_path_selected.emit(save_kind.get_selected_id(), path)
+
+
+func _open_accept_dialog() -> void:
+	var preferred_directory := "res://animations/kimodo"
+	if not DirAccess.dir_exists_absolute(ProjectSettings.globalize_path(preferred_directory)):
+		preferred_directory = "res://"
+	var creating_new := accept_library_mode.get_selected_id() == 1
+	accept_dialog.file_mode = (
+		FileDialog.FILE_MODE_SAVE_FILE if creating_new else FileDialog.FILE_MODE_OPEN_FILE
+	)
+	accept_dialog.title = "Create production library" if creating_new else "Choose production library"
+	accept_dialog.current_dir = (
+		accept_destination.get_base_dir() if not accept_destination.is_empty()
+		else preferred_directory
+	)
+	accept_dialog.current_file = (
+		accept_destination.get_file() if not accept_destination.is_empty()
+		else "character_animations.res"
+	)
+	accept_dialog.popup_centered_ratio(0.8)
+
+
+func _on_accept_library_mode_selected(_index: int) -> void:
+	set_accept_destination("")
+	accept_status.visible = false
+
+
+func _on_accept_file_selected(path: String) -> void:
+	if accept_library_mode.get_selected_id() == 1 and FileAccess.file_exists(path):
+		show_accept_error("Choose a new filename, or switch to Existing library.")
+		return
+	set_accept_destination(path)
+	accept_status.visible = false
+
+
+func _on_accept_pressed() -> void:
+	accept_requested.emit(accept_destination, accept_name.text, false)
+
+
+func _update_accept_button() -> void:
+	if accept_button == null:
+		return
+	accept_button.disabled = (
+		_accept_generating
+		or not _accept_character_ready
+		or accept_destination.is_empty()
+		or accept_name.text.strip_edges().is_empty()
+	)

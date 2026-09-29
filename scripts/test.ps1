@@ -65,6 +65,9 @@ Invoke-GodotCheck -Name 'KimodoSession persistence and legacy rejection' -GodotA
 Invoke-GodotCheck -Name 'Durable generated-take archive' -GodotArguments @(
     '--headless', '--path', '.', '--script', 'res://tests/test_take_archive.gd'
 )
+Invoke-GodotCheck -Name 'Undoable production-library acceptance' -GodotArguments @(
+    '--headless', '--path', '.', '--script', 'res://tests/test_acceptance_service.gd'
+)
 Invoke-GodotCheck -Name 'Multiple take response contract' -GodotArguments @(
     '--headless', '--path', '.', '--script', 'res://tests/test_multiple_takes.gd'
 )

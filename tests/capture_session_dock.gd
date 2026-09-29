@@ -49,6 +49,8 @@ func _run() -> void:
 	var take_selector := dock.find_child("TakeSelection", true, false) as OptionButton
 	take_selector.select(1)
 	take_selector.emit_signal("item_selected", 1)
+	dock._preview_panel.set_accept_destination("res://animations/jenny_motion_library.res")
+	dock._preview_panel.accept_name.text = "friendly_wave"
 	(dock.find_child("SessionWorkspace", true, false) as TabContainer).current_tab = 1
 	await create_timer(0.6).timeout
 	await _settle()

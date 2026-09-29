@@ -27,6 +27,7 @@ const SCHEMA_VERSION := 2
 @export var active_generation_index := -1
 @export var selected_take_id := ""
 @export var artifacts: Dictionary = {}
+@export var acceptances: Dictionary = {}
 
 
 func touch() -> void:
