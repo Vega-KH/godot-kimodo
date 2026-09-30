@@ -9,6 +9,7 @@ const Archive := preload("res://addons/kimodo_motion/domain/take_archive_service
 const JENNY := preload("res://tests/characters/fixtures/Jenny03.glb")
 const MOTION_FIXTURE := "res://tests/fixtures/soma77_mmcp_1_0.gltf"
 const CAPABILITIES_FIXTURE := "res://tests/fixtures/soma77_capabilities.json"
+const REMY_PATH := "res://tests/private_models/Remy-with-taunt-animation.fbx"
 
 
 func _init() -> void:
@@ -39,6 +40,19 @@ func _run() -> void:
 	dock._on_character_target_changed(JENNY)
 	await _settle()
 	_capture(output_directory.path_join("session_generate.png"))
+	var rig_profile_path := ""
+	if ResourceLoader.exists(REMY_PATH):
+		var remy := ResourceLoader.load(REMY_PATH, "PackedScene", ResourceLoader.CACHE_MODE_REUSE)
+		dock._on_character_target_changed(remy)
+		await _settle()
+		_capture(output_directory.path_join("rig_setup_remy.png"))
+		dock._rig_setup_panel.save_button.emit_signal("pressed")
+		rig_profile_path = dock._draft.rig_profile_path
+		dock._workspace_tabs.current_tab = dock._rig_setup_panel.get_index()
+		await _settle()
+		_capture(output_directory.path_join("rig_setup_remy_certified.png"))
+		dock._on_character_target_changed(JENNY)
+		await _settle()
 	var session_data_path := Archive.DATA_ROOT.path_join(dock._draft.session_id)
 	if not _archive_fixture(dock, client, generation, "Two versions of a friendly wave"):
 		quit(1)
@@ -65,6 +79,8 @@ func _run() -> void:
 	await process_frame
 	if FileAccess.file_exists(session_path):
 		DirAccess.remove_absolute(ProjectSettings.globalize_path(session_path))
+	if not rig_profile_path.is_empty() and FileAccess.file_exists(rig_profile_path):
+		DirAccess.remove_absolute(ProjectSettings.globalize_path(rig_profile_path))
 	_remove_tree(session_data_path)
 	quit(0)
 

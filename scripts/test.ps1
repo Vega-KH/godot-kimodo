@@ -98,6 +98,12 @@ Invoke-GodotCheck -Name 'Humanoid dock preview and save lifecycle' -GodotArgumen
 Invoke-GodotCheck -Name 'Jenny skinned-character retarget and reload' -GodotArguments @(
     '--headless', '--path', '.', '--script', 'res://tests/test_jenny_character_retarget.gd'
 )
+Invoke-GodotCheck -Name 'Versioned rig profiles and deterministic matching' -GodotArguments @(
+    '--headless', '--path', '.', '--script', 'res://tests/test_rig_profile.gd'
+)
+Invoke-GodotCheck -Name 'Private Remy profile workflow when staged' -GodotArguments @(
+    '--headless', '--path', '.', '--script', 'res://tests/test_private_remy_workflow.gd'
+)
 Invoke-GodotCheck -Name 'Dock skinned-character preview and save lifecycle' -GodotArguments @(
     '--headless', '--path', '.', '--script', 'res://tests/test_character_dock_retarget.gd'
 )

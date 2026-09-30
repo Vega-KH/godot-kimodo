@@ -121,10 +121,15 @@ between the cyan SOMA-77 source, pink humanoid intermediate, and selected
 character result while all three remain at the same playback time.
 
 The selected target must contain exactly one `Skeleton3D`, finite rest
-transforms, and at least one bound skin. The current automatic profile matches
-Godot humanoid semantic names and has been validated with Jenny; the retargeter
-itself accepts explicit canonical-to-character bone profiles so future imported
-rigs do not require Jenny-specific transfer code. Wrist transfer uses a full
+transforms, and at least one bound skin. Exact Godot humanoid names configure
+Jenny automatically. Other regular humanoid rigs open the focused **Rig Setup**
+tab, where deterministic suggestions show their confidence and evidence, every
+canonical role has an editable target or explicit Unmapped choice, and the
+artist certifies a versioned project-owned `KimodoRigProfile`. Profiles are
+reused only for the exact recorded skeleton signature; a changed rig returns to
+setup instead of silently applying stale mappings. The matcher understands
+normalized namespaces/prefixes and curated Mixamo aliases, while manual choices
+always win. Wrist transfer uses a full
 hand frame derived from the middle-finger direction and index-to-little-finger
 palm axis, preserving both flexion and roll across differing rest bases. Every
 finger and thumb joint shares that same palm frame instead of independently
@@ -135,14 +140,32 @@ tracks and continue to inherit their animated parent normally. Changing the
 character rebuilds the derived preview automatically. **Clear** removes only
 the target and derived preview.
 
+Root travel is profile data rather than a character-name special case. Jenny
+uses distinct `Root` and `Hips` roles. A conventional Mixamo rig uses the
+explicit **Hips is skeleton root** policy, which combines source root travel
+and pelvis displacement into one scaled Hips position track. No synthetic bone
+is inserted. Camera **Follow Root** follows the profile's effective motion bone,
+so it follows mapped Hips for a Hips-as-root rig instead of requiring a literal
+bone named `Root`. Translation scaling uses recorded leg-height measurements;
+target animation libraries already embedded in imported scenes are ignored and
+remain unmodified and unplayed while Kimodo owns a separate disposable preview
+player.
+
+Private compatibility models belong under `tests/private_models/`, whose
+contents are gitignored except for its guide. Clean repository tests skip those
+checks when a licensed local fixture is absent.
+
 To keep the selected result, choose **Character animation** (the default),
 **Humanoid animation**, **SOMA-77 animation**, or **Character Preview**, then
 press **Save…**. Godot's save dialog chooses the project location and filename,
 so the dock has no separate directory or name fields. The three animation
 choices create one lightweight `.res` `AnimationLibrary` in the selected rig's
 track namespace. Character Preview creates one large, self-contained `.tscn`
-with the selected character baked in. Canonical path validation keeps output
-inside `res://`, and existing files are rejected rather than overwritten.
+with the selected character baked in. Its detached saved copy contains only the
+selected Kimodo animation player; imported animation players are omitted from
+that preview artifact while the selected source scene and live preview remain
+untouched. Canonical path validation keeps output inside `res://`, and existing
+files are rejected rather than overwritten.
 Attach a character animation library to an `AnimationPlayer` under the same
 character root to inspect or play its `motion` animation in Godot's Animation
 panel. Successful saves record their rig layer, artifact form, target signature

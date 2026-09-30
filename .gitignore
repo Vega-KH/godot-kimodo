@@ -2,3 +2,5 @@
 .tmp_render/
 *.tmp
 *.log
+tests/private_models/*
+!tests/private_models/README.md

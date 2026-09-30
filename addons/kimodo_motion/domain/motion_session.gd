@@ -10,7 +10,7 @@ const SCHEMA_VERSION := 2
 @export var created_at_utc := ""
 @export var updated_at_utc := ""
 
-@export_file("*.tscn", "*.scn", "*.glb", "*.gltf") var target_scene_path := ""
+@export_file("*.tscn", "*.scn", "*.glb", "*.gltf", "*.fbx") var target_scene_path := ""
 @export var target_skeleton_signature := ""
 @export var rig_profile_path := ""
 @export var animation_destination := ""

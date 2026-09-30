@@ -14,6 +14,10 @@ const GenerationTakePanel := preload("res://addons/kimodo_motion/ui/generation_t
 const PreviewSavePanel := preload("res://addons/kimodo_motion/ui/preview_save_panel.gd")
 const SessionShell := preload("res://addons/kimodo_motion/ui/session_shell.gd")
 const HistoryPanel := preload("res://addons/kimodo_motion/ui/history_panel.gd")
+const RigSetupPanel := preload("res://addons/kimodo_motion/ui/rig_setup_panel.gd")
+const RigProfile := preload("res://addons/kimodo_motion/retargeting/kimodo_rig_profile.gd")
+const RigMatcher := preload("res://addons/kimodo_motion/retargeting/rig_candidate_matcher.gd")
+const RigProfileStore := preload("res://addons/kimodo_motion/retargeting/rig_profile_store.gd")
 const TakeArchive := preload("res://addons/kimodo_motion/domain/take_archive_service.gd")
 const AcceptanceService := preload(
 	"res://addons/kimodo_motion/domain/acceptance_service.gd"
@@ -54,6 +58,7 @@ var _workspace_tabs: TabContainer
 var _generation_panel: Control
 var _preview_panel: Control
 var _history_panel: Control
+var _rig_setup_panel: Control
 var _draft_status: Label
 var _session_details_button: Button
 var _draft_details: RichTextLabel
@@ -95,6 +100,11 @@ var _save_button: Button
 var _save_status: Label
 var _humanoid_fixture: PackedScene
 var _character_target: PackedScene
+var _rig_profile: Resource
+var _rig_setup_skeleton: Skeleton3D
+var _rig_setup_scene_path := ""
+var _rig_setup_signature := ""
+var _rig_setup_skeleton_path := NodePath()
 var _acceptance_transactions: Array[RefCounted] = []
 var _fallback_undo_redo: UndoRedo
 
@@ -134,6 +144,13 @@ func _ready() -> void:
 
 func _exit_tree() -> void:
 	_release_and_free_take_motions()
+	if _rig_setup_skeleton != null:
+		_rig_setup_skeleton.free()
+		_rig_setup_skeleton = null
+	_rig_setup_scene_path = ""
+	_rig_setup_signature = ""
+	_rig_setup_skeleton_path = NodePath()
+	_rig_setup_panel.clear()
 	if _fallback_undo_redo != null:
 		_fallback_undo_redo.clear_history(false)
 		_fallback_undo_redo.free()
@@ -183,6 +200,10 @@ func _build_ui() -> void:
 	_workspace_tabs.add_child(_history_panel)
 	_history_panel.take_activated.connect(_on_history_take_activated)
 	_history_panel.delete_confirmed.connect(_on_history_delete_confirmed)
+
+	_rig_setup_panel = RigSetupPanel.new()
+	_workspace_tabs.add_child(_rig_setup_panel)
+	_rig_setup_panel.save_requested.connect(_on_save_rig_profile)
 
 
 func _bind_generation_panel_controls() -> void:
@@ -690,7 +711,7 @@ func _update_generation_availability() -> void:
 		and _generation_client.state == GenerationClient.GenerationState.GENERATING
 	)
 	var connected: bool = _client != null and _client.state == Client.ConnectionState.READY
-	var ready_to_generate := connected and _draft != null and _character_target != null
+	var ready_to_generate := connected and _draft != null and _character_target != null and _rig_profile != null
 	_generate_button.disabled = not ready_to_generate and not generating
 	_generate_button.text = "Cancel Generation" if generating else (
 		"Generate Again" if _preview != null and _preview.has_motion() else "Generate"
@@ -908,12 +929,17 @@ func _on_character_target_changed(resource: Resource) -> void:
 		return
 	_clear_character_preview()
 	_character_target = null
+	_rig_profile = null
+	if _rig_setup_skeleton != null:
+		_rig_setup_skeleton.free()
+		_rig_setup_skeleton = null
 	_character_clear_button.disabled = resource == null
 	if resource == null:
 		_character_status.modulate = Color(0.7, 0.72, 0.76)
 		_character_status.text = "Select a project-owned compatible PackedScene target."
 		if not _restoring_draft and _draft != null:
 			SessionStore.set_target(_draft, "", null)
+			_draft.rig_profile_path = ""
 			_session_controller.mark_dirty()
 			_session_controller.flush()
 			_update_draft_details()
@@ -928,7 +954,7 @@ func _on_character_target_changed(resource: Resource) -> void:
 		instance.free()
 		_set_character_error("Character target root must be a Node3D.")
 		return
-	var error := HumanoidCharacterBaker.validate_target(instance)
+	var error := _validate_character_structure(instance)
 	if not error.is_empty():
 		instance.free()
 		_set_character_error(error)
@@ -936,39 +962,66 @@ func _on_character_target_changed(resource: Resource) -> void:
 	var skeleton := _find_first_node(instance, "Skeleton3D") as Skeleton3D
 	var scene_path := (resource as PackedScene).resource_path
 	var signature := SessionStore.skeleton_signature(skeleton)
-	if _restoring_draft:
-		if (
-			not _draft.target_skeleton_signature.is_empty()
-			and _draft.target_skeleton_signature != signature
-		):
-			instance.free()
-			_set_character_error("The session target skeleton has changed since it was recorded.")
-			return
-	else:
+	if not _restoring_draft:
 		if _draft == null:
 			instance.free()
 			_set_character_error("Open a session before selecting a character.")
 			return
+		var target_changed: bool = _draft.target_scene_path != scene_path or _draft.target_skeleton_signature != signature
 		var target_result := SessionStore.set_target(_draft, scene_path, skeleton)
 		if not target_result["ok"]:
 			instance.free()
 			_set_character_error(target_result["message"])
 			return
+		if target_changed:
+			_draft.rig_profile_path = ""
 	var bone_count := skeleton.get_bone_count()
 	var skinned_meshes := 0
 	for found in instance.find_children("*", "MeshInstance3D", true, false):
 		if (found as MeshInstance3D).skin != null:
 			skinned_meshes += 1
-	instance.free()
 	_character_target = resource as PackedScene
-	_character_status.modulate = Color(0.25, 0.85, 0.45)
-	_character_status.text = "Compatible target: %d bones, %d skinned meshes." % [
-		bone_count, skinned_meshes,
-	]
+	_rig_setup_skeleton = skeleton.duplicate() as Skeleton3D
+	_rig_setup_scene_path = scene_path
+	_rig_setup_signature = signature
+	_rig_setup_skeleton_path = instance.get_path_to(skeleton)
+	var suggestions: Dictionary = RigMatcher.suggest(_rig_setup_skeleton)
+	var profile_result := {}
+	if _draft != null and not _draft.rig_profile_path.is_empty():
+		profile_result = RigProfileStore.load_current(_draft.rig_profile_path, skeleton, signature)
+	if profile_result.get("ok", false):
+		_rig_profile = profile_result["profile"]
+	elif profile_result.get("code", "") != "stale_profile":
+		var exact := RigProfile.exact_names(skeleton, instance.get_path_to(skeleton))
+		if exact["ok"]:
+			_rig_profile = exact["profile"]
+			_rig_profile.target_scene_path = scene_path
+			_rig_profile.target_scene_signature = FileAccess.get_sha256(scene_path)
+			_rig_profile.certify(skeleton, signature)
+	if _rig_profile != null:
+		error = HumanoidCharacterBaker.validate_target(instance, _rig_profile)
+		if not error.is_empty():
+			_rig_profile = null
+			instance.free()
+			_set_character_error(error)
+			return
+		_character_status.modulate = Color(0.25, 0.85, 0.45)
+		_character_status.text = "Compatible target: %d bones, %d skinned meshes%s." % [bone_count, skinned_meshes, " with saved rig profile" if profile_result.get("ok", false) else ""]
+		_rig_setup_panel.configure(
+			_rig_setup_skeleton,
+			RigMatcher.reviewed(_rig_profile, suggestions),
+			suggestions,
+		)
+	else:
+		_rig_setup_panel.configure(_rig_setup_skeleton, suggestions)
+		_workspace_tabs.current_tab = _rig_setup_panel.get_index()
+		_character_status.modulate = Color(0.95, 0.72, 0.2)
+		_character_status.text = ("The saved rig profile is stale. Review Rig Setup." if profile_result.get("code", "") == "stale_profile" else "This skeleton needs a reviewed rig profile. Open Rig Setup.")
+	instance.free()
 	if not _restoring_draft:
 		_session_controller.mark_dirty()
 		_session_controller.flush()
-	if _preview_panel.has_source():
+	if _preview_panel.has_source() and _rig_profile != null:
 		if not _preview_panel.has_humanoid() and not _build_humanoid_preview():
 			return
 		if not _build_character_preview():
@@ -976,6 +1029,84 @@ func _on_character_target_changed(resource: Resource) -> void:
 	_update_draft_details()
 	_update_character_availability()
 	_update_generation_availability()
+
+
+func _on_save_rig_profile(mapping: Dictionary, root_policy: String) -> void:
+	if _draft == null or _character_target == null or _rig_setup_skeleton == null:
+		_rig_setup_panel.show_error("Choose a character in an active session first.")
+		return
+	var issues := RigMatcher.diagnose(_rig_setup_skeleton, mapping, root_policy)
+	if not issues.is_empty():
+		_rig_setup_panel.show_error("; ".join(issues))
+		return
+	var created := RigProfile.create(mapping, _rig_setup_skeleton_path, _rig_setup_skeleton, root_policy, "leg_height")
+	if not created["ok"]:
+		_rig_setup_panel.show_error(created["message"])
+		return
+	var profile: Resource = created["profile"]
+	profile.target_scene_path = _rig_setup_scene_path
+	profile.target_scene_signature = FileAccess.get_sha256(_rig_setup_scene_path)
+	var certified: Dictionary = profile.certify(_rig_setup_skeleton, _rig_setup_signature)
+	if not certified["ok"]:
+		_rig_setup_panel.show_error(certified["message"])
+		return
+	var path := RigProfileStore.suggested_path(_rig_setup_scene_path)
+	var saved := RigProfileStore.save(profile, path)
+	if not saved["ok"]:
+		_rig_setup_panel.show_error(saved["message"])
+		return
+	_rig_profile = profile
+	_draft.target_scene_path = _rig_setup_scene_path
+	_draft.target_skeleton_signature = _rig_setup_signature
+	_draft.rig_profile_path = saved["path"]
+	_session_controller.mark_dirty()
+	var flushed: Dictionary = _session_controller.flush()
+	if not flushed["ok"]:
+		_rig_profile = null
+		_rig_setup_panel.show_error(flushed["message"])
+		return
+	var suggestions: Dictionary = RigMatcher.suggest(_rig_setup_skeleton)
+	_rig_setup_panel.configure(
+		_rig_setup_skeleton,
+		RigMatcher.reviewed(profile, suggestions),
+		suggestions,
+	)
+	_rig_setup_panel.show_saved(saved["path"])
+	_character_status.modulate = Color(0.25, 0.85, 0.45)
+	_character_status.text = "Compatible target with certified rig profile."
+	if _preview_panel.has_source():
+		if not _preview_panel.has_humanoid() and not _build_humanoid_preview():
+			return
+		if not _build_character_preview():
+			return
+	_workspace_tabs.current_tab = _generation_panel.get_index()
+	_update_draft_details()
+	_update_generation_availability()
+
+
+func _validate_character_structure(character_root: Node) -> String:
+	var skeletons := character_root.find_children("*", "Skeleton3D", true, false)
+	if character_root is Skeleton3D:
+		skeletons.push_front(character_root)
+	if skeletons.size() != 1:
+		return "Character target must contain exactly one Skeleton3D (found %d)" % skeletons.size()
+	var skeleton := skeletons[0] as Skeleton3D
+	for bone_index in skeleton.get_bone_count():
+		if not skeleton.get_bone_rest(bone_index).is_finite():
+			return "Character skeleton has a non-finite rest transform at bone %s" % skeleton.get_bone_name(bone_index)
+	var skinned_meshes := 0
+	for found in character_root.find_children("*", "MeshInstance3D", true, false):
+		var mesh_instance := found as MeshInstance3D
+		if mesh_instance.skin == null:
+			continue
+		if mesh_instance.skin.get_bind_count() <= 0:
+			return "Character mesh %s has an empty Skin binding" % mesh_instance.name
+		skinned_meshes += 1
+	if skinned_meshes == 0:
+		return "Character target must contain at least one skinned MeshInstance3D"
+	if character_root.get_node_or_null(HumanoidCharacterBaker.PLAYER_NODE_NAME) != null:
+		return "Character target already owns the reserved %s node" % HumanoidCharacterBaker.PLAYER_NODE_NAME
+	return ""
 
 
 func _on_clear_character_target_pressed() -> void:
@@ -1000,7 +1131,7 @@ func _build_character_preview() -> bool:
 		_set_character_error("The selected character scene could not be instantiated.")
 		return false
 	var motion: RefCounted = HumanoidCharacterBaker.create_motion(
-		_humanoid_preview.motion_scene(), character_root
+		_humanoid_preview.motion_scene(), character_root, _rig_profile
 	)
 	if motion == null:
 		character_root.free()

@@ -66,12 +66,21 @@ func set_motion(motion: RefCounted) -> bool:
 	motion.scene = null
 	_world_root.add_child(_motion_scene)
 	_skeleton = _find_first(_motion_scene, "Skeleton3D") as Skeleton3D
-	_player = _find_first(_motion_scene, "AnimationPlayer") as AnimationPlayer
+	# Imported characters may already contain one or more author animations.
+	# Prefer Kimodo's dedicated disposable player without touching those clips.
+	_player = _motion_scene.find_child("KimodoAnimationPlayer", true, false) as AnimationPlayer
+	if _player == null:
+		_player = _find_first(_motion_scene, "AnimationPlayer") as AnimationPlayer
 	_animation_name = motion.animation_name
 	if _skeleton == null or _player == null or not _player.has_animation(_animation_name):
 		clear_motion()
 		return false
-	_follow_bone_index = _skeleton.find_bone("Root")
+	var preferred_follow_bone := StringName()
+	if motion.has_method("preview_follow_bone"):
+		preferred_follow_bone = motion.preview_follow_bone()
+	_follow_bone_index = _skeleton.find_bone(preferred_follow_bone)
+	if _follow_bone_index < 0:
+		_follow_bone_index = _skeleton.find_bone("Root")
 	if _follow_bone_index < 0:
 		_follow_bone_index = _skeleton.find_bone("Hips")
 	_apply_looping()

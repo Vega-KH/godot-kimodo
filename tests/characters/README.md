@@ -20,8 +20,10 @@ The alternative workspace export, `Jenny03-no-root-bone.glb`, was inspected
 without modification. It has the same geometry and materials, 60 skin binds,
 and `Hips` as the hierarchy root. Its SHA-256 is
 `a0c57fecd3a80d02e53082e374fc0d43eb08590df960df412e7c38d76a36c3c2`.
-It is not duplicated here because a dedicated root is required by the current
-humanoid motion contract.
+It is not duplicated here because the rooted Jenny remains the committed
+regression fixture. Goal 18 added an explicit Hips-as-root policy for rigs such
+as Mixamo; that policy is selected and certified in a saved rig profile rather
+than inferred as a per-character exception.
 
 Godot imports embedded textures as Basis Universal resources so no extracted
 texture copies are committed. The GLB is below GitHub's 50 MiB warning

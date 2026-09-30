@@ -5,7 +5,7 @@ const HumanoidMap := preload(
 	"res://addons/kimodo_motion/retargeting/soma77_humanoid_map.gd"
 )
 const RigProfile := preload(
-	"res://addons/kimodo_motion/retargeting/humanoid_rig_profile.gd"
+	"res://addons/kimodo_motion/retargeting/kimodo_rig_profile.gd"
 )
 const RestOrientation := preload(
 	"res://addons/kimodo_motion/retargeting/rest_orientation.gd"
@@ -20,6 +20,10 @@ class CharacterMotion extends RefCounted:
 	var skeleton: Skeleton3D
 	var player: AnimationPlayer
 	var animation_name: StringName = &"motion"
+	var follow_bone_name: StringName
+
+	func preview_follow_bone() -> StringName:
+		return follow_bone_name
 
 
 static func create_motion(
@@ -69,6 +73,11 @@ static func create_motion(
 	motion.scene = character_root
 	motion.skeleton = target_skeleton
 	motion.player = player
+	motion.follow_bone_name = (
+		rig_profile.target_for("Root")
+		if rig_profile.root_motion_policy == RigProfile.ROOT_SEPARATE
+		else rig_profile.target_for("Hips")
+	)
 	return motion
 
 
@@ -88,7 +97,10 @@ static func validate_target(character_root: Node, rig_profile: RefCounted = null
 		if not profile_result["ok"]:
 			return profile_result["message"]
 		rig_profile = profile_result["profile"]
-	for canonical_name in ["Root", "Hips"] + rig_profile.rotation_targets():
+	var required: Array = ["Hips"] + rig_profile.rotation_targets()
+	if rig_profile.root_motion_policy == RigProfile.ROOT_SEPARATE:
+		required.push_front("Root")
+	for canonical_name in required:
 		var target_name: StringName = rig_profile.target_for(canonical_name)
 		if target_name.is_empty() or skeleton.find_bone(target_name) < 0:
 			return "Character rig profile cannot resolve %s" % canonical_name
@@ -127,7 +139,10 @@ static func validate(
 		if not profile_result["ok"]:
 			return profile_result["message"]
 		rig_profile = profile_result["profile"]
-	for canonical_name in ["Root", "Hips"] + rig_profile.rotation_targets():
+	var required: Array = ["Hips"] + rig_profile.rotation_targets()
+	if rig_profile.root_motion_policy == RigProfile.ROOT_SEPARATE:
+		required.push_front("Root")
+	for canonical_name in required:
 		if source_skeleton.find_bone(canonical_name) < 0:
 			return "Humanoid source is missing required bone %s" % canonical_name
 		var target_name: StringName = rig_profile.target_for(canonical_name)
@@ -198,13 +213,32 @@ static func save_preview_scene(
 	output_directory = directory_result["path"]
 	var stem := _unique_scene_stem(output_directory, requested_stem)
 	var scene_path := output_directory.path_join(stem + ".tscn")
+	# Build a detached copy before removing imported author animation players.
+	# Character Preview is a focused Kimodo artifact; neither its live preview nor
+	# the selected source character may be mutated by this cleanup.
+	var snapshot := PackedScene.new()
+	if snapshot.pack(character_root) != OK:
+		push_error("Cannot snapshot retargeted character scene: %s" % scene_path)
+		return {}
+	var preview_copy := snapshot.instantiate() as Node3D
+	if preview_copy == null:
+		push_error("Cannot instantiate retargeted character snapshot: %s" % scene_path)
+		return {}
+	for found in preview_copy.find_children("*", "AnimationPlayer", true, false):
+		var other_player := found as AnimationPlayer
+		if other_player.name == PLAYER_NODE_NAME:
+			continue
+		other_player.get_parent().remove_child(other_player)
+		other_player.free()
 	var packed := PackedScene.new()
-	if (
-		packed.pack(character_root) != OK
-		or ResourceSaver.save(
+	var pack_error := packed.pack(preview_copy)
+	preview_copy.free()
+	var save_error := ERR_CANT_CREATE
+	if pack_error == OK:
+		save_error = ResourceSaver.save(
 			packed, scene_path, ResourceSaver.FLAG_OMIT_EDITOR_PROPERTIES
-		) != OK
-	):
+		)
+	if pack_error != OK or save_error != OK:
 		push_error("Cannot save retargeted character scene: %s" % scene_path)
 		if FileAccess.file_exists(scene_path):
 			DirAccess.remove_absolute(ProjectSettings.globalize_path(scene_path))
@@ -248,11 +282,13 @@ static func _retarget_animation(
 		var track := animation.add_track(Animation.TYPE_ROTATION_3D)
 		animation.track_set_path(track, _track_path(rig_profile.skeleton_path, bone_name))
 		rotation_tracks[canonical_name] = track
-	var root_position_track := animation.add_track(Animation.TYPE_POSITION_3D)
-	animation.track_set_path(
-		root_position_track,
-		_track_path(rig_profile.skeleton_path, rig_profile.target_for("Root")),
-	)
+	var root_position_track := -1
+	if rig_profile.root_motion_policy == RigProfile.ROOT_SEPARATE:
+		root_position_track = animation.add_track(Animation.TYPE_POSITION_3D)
+		animation.track_set_path(
+			root_position_track,
+			_track_path(rig_profile.skeleton_path, rig_profile.target_for("Root")),
+		)
 	var hips_position_track := animation.add_track(Animation.TYPE_POSITION_3D)
 	animation.track_set_path(
 		hips_position_track,
@@ -278,11 +314,12 @@ static func _retarget_animation(
 				time,
 				target_locals[target_index].basis.get_rotation_quaternion(),
 			)
-		animation.position_track_insert_key(
-			root_position_track,
-			time,
-			target_locals[target.find_bone(rig_profile.target_for("Root"))].origin,
-		)
+		if root_position_track >= 0:
+			animation.position_track_insert_key(
+				root_position_track,
+				time,
+				target_locals[target.find_bone(rig_profile.target_for("Root"))].origin,
+			)
 		animation.position_track_insert_key(
 			hips_position_track,
 			time,
@@ -303,6 +340,7 @@ static func _target_local_poses(
 	var target_globals: Array[Transform3D] = []
 	target_locals.resize(target.get_bone_count())
 	target_globals.resize(target.get_bone_count())
+	var translation_scale: float = rig_profile.translation_scale(source)
 	for target_index in target.get_bone_count():
 		var target_name := target.get_bone_name(target_index)
 		var canonical_name: StringName = rig_profile.canonical_for(target_name)
@@ -317,7 +355,7 @@ static func _target_local_poses(
 				source_globals[source_index].origin
 				- source_global_rests[source_index].origin
 			)
-			local_pose.origin += source_delta
+			local_pose.origin += source_delta * translation_scale
 		if canonical_name in rig_profile.rotation_targets():
 			var source_index := source.find_bone(canonical_name)
 			var source_motion := (
@@ -341,7 +379,7 @@ static func _target_local_poses(
 					source_globals[source_index].origin
 					- source_global_rests[source_index].origin
 				)
-				var desired_origin := target_global_rests[target_index].origin + source_delta
+				var desired_origin := target_global_rests[target_index].origin + source_delta * translation_scale
 				local_pose.origin = parent_global.affine_inverse() * desired_origin
 		target_locals[target_index] = local_pose
 		target_globals[target_index] = parent_global * local_pose

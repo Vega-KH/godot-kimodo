@@ -187,6 +187,10 @@ static func validate_session(session: Resource) -> String:
 		var target_result := ProjectPaths.validate_file(session.target_scene_path)
 		if not target_result["ok"]:
 			return target_result["message"]
+	if not session.rig_profile_path.is_empty():
+		var profile_result := ProjectPaths.validate_file(session.rig_profile_path, "tres")
+		if not profile_result["ok"]:
+			return "KimodoSession rig profile path is invalid."
 	var take_ids := {}
 	for record in session.generation_records:
 		if not record is Dictionary or String(record.get("record_id", "")).is_empty():

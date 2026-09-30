@@ -5,6 +5,9 @@ const GenerationPanel := preload(
 )
 const PreviewPanel := preload("res://addons/kimodo_motion/ui/preview_save_panel.gd")
 const HistoryPanel := preload("res://addons/kimodo_motion/ui/history_panel.gd")
+const RigSetupPanel := preload("res://addons/kimodo_motion/ui/rig_setup_panel.gd")
+const RigMatcher := preload("res://addons/kimodo_motion/retargeting/rig_candidate_matcher.gd")
+const HumanoidFixture := preload("res://addons/kimodo_motion/retargeting/humanoid_fixture.gd")
 const Session := preload("res://addons/kimodo_motion/domain/motion_session.gd")
 const MotionResponse := preload(
 	"res://addons/kimodo_motion/transport/mmcp_motion_response.gd"
@@ -123,10 +126,34 @@ func _run() -> void:
 	history._confirm_delete()
 	_check(deleted[0] == "record:0", "history panel confirms explicit source deletion")
 
+	var rig_setup := RigSetupPanel.new()
+	root.add_child(rig_setup)
+	var setup_skeleton := HumanoidFixture.create_skeleton()
+	var suggestions := RigMatcher.suggest(setup_skeleton)
+	rig_setup.configure(setup_skeleton, suggestions)
+	_check(rig_setup.current_mapping()["LeftHand"] == "LeftHand", "rig setup displays deterministic suggestions")
+	var hand_selector := rig_setup.find_child("RigRole_LeftHand", true, false) as OptionButton
+	hand_selector.select(0)
+	hand_selector.emit_signal("item_selected", 0)
+	_check(not rig_setup.current_mapping().has("LeftHand"), "rig setup offers explicit unmapped selection")
+	rig_setup.reset_button.emit_signal("pressed")
+	_check(rig_setup.current_mapping()["LeftHand"] == "LeftHand", "Reset Suggestions restores evidence-based mapping")
+	hand_selector = rig_setup.find_child("RigRole_LeftHand", true, false) as OptionButton
+	hand_selector.select(0)
+	hand_selector.emit_signal("item_selected", 0)
+	rig_setup.reset_button.emit_signal("pressed")
+	_check(rig_setup.current_mapping()["LeftHand"] == "LeftHand", "Reset Suggestions remains idempotent after repeated edits")
+	var saved_mapping := [{}]
+	rig_setup.save_requested.connect(func(mapping: Dictionary, _policy: String) -> void: saved_mapping[0] = mapping)
+	rig_setup.save_button.emit_signal("pressed")
+	_check(saved_mapping[0]["Hips"] == "Hips", "rig setup emits the reviewed mapping")
+	setup_skeleton.free()
+
 	preview.clear_takes()
 	generation.queue_free()
 	preview.queue_free()
 	history.queue_free()
+	rig_setup.queue_free()
 	await process_frame
 	_check(root.get_child_count() == 0, "focused UI components clean up their nodes")
 	_finish()
