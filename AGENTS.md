@@ -6,10 +6,14 @@ Python, CUDA, and model weights in the independently versioned
 
 ## Goal-oriented development
 
-- In the combined development workspace, read
-  `../kimodo-godot-server/docs/DEVELOPMENT_GOALS.md` before starting work.
+- Read `docs/README.md`, then the product plan, `docs/DEVELOPMENT_GOALS.md`
+  and `docs/AGENT_HANDOFF.md` before starting work. These shared documents
+  cover both repositories; the product workflows take precedence.
+- Stage 1 (Goals 0–21) is complete and pushed. Stage 2 begins with poses;
+  propose the detailed next goal for approval before implementing it.
 - Work on exactly one approved goal at a time.
-- Preserve completed goals and tasks in the ledger.
+- Preserve completed outcomes/checkpoints in `docs/STAGE1_COMPLETION.md`
+  or subsequent compact history. Git retains obsolete detailed task lists.
 - End every goal with its recorded automated or manual acceptance test.
 - After successful completion without a major blocker, propose the next goal
   for user review, but do not begin it until explicitly approved.
