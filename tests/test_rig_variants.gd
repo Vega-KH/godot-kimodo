@@ -36,6 +36,7 @@ func _run() -> void:
 		{"names":"sided", "torso":1, "digits":4, "minimal":true, "axes":true},
 		{"names":"opaque", "torso":2, "digits":5, "reverse":true, "axes":true, "scale":1.4, "proportions":true},
 		{"names":"namespace", "torso":3, "digits":4, "short_digits":true, "hips_only":true},
+		{"names":"canonical", "torso":3, "digits":5, "common_pelvis":true},
 		# Held-out combination: arbitrary names + one torso + short four-finger
 		# hands + reversed indices + different axes/scale + optional body omissions.
 		{"names":"opaque", "torso":1, "digits":4, "short_digits":true, "reverse":true, "axes":true, "scale":0.65, "minimal":true, "hips_only":true, "proportions":true},

@@ -107,6 +107,16 @@ Invoke-GodotCheck -Name 'Private Remy profile workflow when staged' -GodotArgume
 Invoke-GodotCheck -Name 'Generic variant anatomy, geometry and saved playback' -GodotArguments @(
     '--headless', '--path', '.', '--script', 'res://tests/test_rig_variants.gd'
 )
+Invoke-GodotCheck -Name 'Bounded evidence-based rig matching' -GodotArguments @(
+    '--headless', '--path', '.', '--script', 'res://tests/test_rig_matching.gd'
+)
+Invoke-GodotCheck -Name 'Private universal Remy workflow when staged' -GodotArguments @(
+    '--headless', '--path', '.', '--script', 'res://tests/test_private_remy_workflow.gd',
+    '--', '--universal'
+)
+Invoke-GodotCheck -Name 'Private common-parent feasibility when staged' -GodotArguments @(
+    '--headless', '--path', '.', '--script', 'res://tests/test_private_common_pelvis.gd'
+)
 Invoke-GodotCheck -Name 'Private import compatibility and actionable rejection when staged' -GodotArguments @(
     '--headless', '--path', '.', '--script', 'res://tests/test_private_variant_import.gd'
 )

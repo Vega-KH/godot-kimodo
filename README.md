@@ -134,7 +134,15 @@ transforms and small exporter rounding are handled separately. Exact Godot human
 Jenny automatically. Other regular humanoid rigs open the focused **Rig Setup**
 tab, where deterministic suggestions show their confidence and evidence, every
 canonical role has an editable target or explicit Unmapped choice, and the
-artist certifies a versioned project-owned `KimodoRigProfile`. Profiles are
+artist certifies a versioned project-owned `KimodoRigProfile`. Rig mappings are
+suggested using bounded token/alias and parent-chain evidence, not arbitrary
+fuzzy guesses. Neutral `.x` markers and exporter IDs are recognized while
+meaningful spine/finger numbers remain available. Close candidates stay
+unselected; alternatives lead the dropdown and explain their evidence.
+**Suggest Unmapped** fills only unreviewed empty rows, preserving manual and
+certified omissions. **Reset Suggestions** explicitly discards current choices.
+Profile data and palm landmarks remain authoritative when reopened.
+Profiles are
 reused only for the exact recorded skeleton signature; a changed rig returns to
 setup instead of silently applying stale mappings. The matcher understands
 normalized namespaces/prefixes, Mixamo aliases, sided `.L`/`.R` or `_L`/`_R`

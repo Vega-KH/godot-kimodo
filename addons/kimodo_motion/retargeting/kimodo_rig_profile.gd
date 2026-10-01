@@ -106,9 +106,11 @@ func validate_for(skeleton: Skeleton3D) -> String:
 				var parent_name := String(canonical_to_target[previous])
 				var child_name := String(canonical_to_target[role])
 				if not Geometry.descendant(skeleton, child_name, parent_name):
-					return "%s ('%s') must descend from %s ('%s'). Correct the bone map or the character hierarchy." % [role, child_name, previous, parent_name]
+					var actual_parent := skeleton.get_bone_parent(skeleton.find_bone(child_name))
+					var actual_name := String(skeleton.get_bone_name(actual_parent)) if actual_parent >= 0 else "(skeleton root)"
+					return "%s ('%s') must descend from %s ('%s'); its actual parent is '%s'. Review the ancestor chain and bone map. A genuinely separate control-driven branch needs a compatible game/deform hierarchy; changing names alone will not repair it." % [role, child_name, previous, parent_name, actual_name]
 				if rests[skeleton.find_bone(parent_name)].origin.distance_to(rests[skeleton.find_bone(child_name)].origin) <= 0.00001:
-					return "%s and %s have zero-length rest geometry. Choose distinct anatomical joints or correct the rig." % [previous, role]
+					return "%s ('%s') and %s ('%s') have zero-length rest geometry. Choose distinct anatomical joints; an optional colocated helper may be left unmapped. Do not omit a required joint or alter the bind pose merely to bypass this check." % [previous, parent_name, role, child_name]
 			previous = role
 	for hand in ["LeftHand", "RightHand"]:
 		var frame: Dictionary = hand_frames.get(hand, {})

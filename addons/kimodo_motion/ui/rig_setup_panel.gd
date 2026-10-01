@@ -18,6 +18,8 @@ var _suggestions: Dictionary = {}
 var _selectors: Dictionary = {}
 var _frame_selectors: Dictionary = {}
 var _frames_manual := false
+var _reviewed_roles: Dictionary = {}
+var suggest_button: Button
 
 func _init() -> void:
 	name = "Rig Setup"
@@ -36,7 +38,10 @@ func configure(
 	root_policy.select(1 if result["root_motion_policy"] == Profile.ROOT_HIPS_ONLY else 0)
 	_rebuild_rows(result["rows"].duplicate(true))
 	_set_frames(result.get("hand_frames", Profile.suggest_hand_frames(current_mapping())))
+	# Saved landmark choices are reviewed data, not freshly inferred defaults.
+	_frames_manual = not _reviewed_roles.is_empty()
 	reset_button.disabled = false
+	suggest_button.disabled = false
 	save_button.disabled = false
 	status.modulate = Color(0.95, 0.72, 0.2)
 	status.text = "Map required body roles and at least one torso segment. Optional anatomy may stay unmapped. Review both palm frames, then save."
@@ -46,12 +51,14 @@ func clear() -> void:
 	for child in rows.get_children():
 		child.free()
 	_selectors.clear()
+	_reviewed_roles.clear()
 	_frame_selectors.clear()
 	_frames_manual = false
 	_bone_names.clear()
 	_suggestions.clear()
 	root_policy.select(0)
 	reset_button.disabled = true
+	suggest_button.disabled = true
 	save_button.disabled = true
 	status.modulate = Color(0.7, 0.72, 0.76)
 	status.text = "Select a character to inspect its rig mapping."
@@ -119,9 +126,17 @@ func _build() -> void:
 	scroll.add_child(rows)
 	var actions := HBoxContainer.new()
 	add_child(actions)
+	suggest_button = Button.new()
+	suggest_button.name = "SuggestUnmappedRigRoles"
+	suggest_button.text = "Suggest Unmapped"
+	suggest_button.tooltip_text = "Fill unreviewed empty rows only. Manual and certified choices, including intentional omissions, are preserved."
+	suggest_button.disabled = true
+	suggest_button.pressed.connect(_suggest_unmapped)
+	actions.add_child(suggest_button)
 	reset_button = Button.new()
 	reset_button.name = "ResetRigSuggestions"
 	reset_button.text = "Reset Suggestions"
+	reset_button.tooltip_text = "Explicitly discard current mapping choices and return to the original suggestions."
 	reset_button.disabled = true
 	reset_button.pressed.connect(func() -> void:
 		reset_requested.emit()
@@ -147,6 +162,7 @@ func _rebuild_rows(suggestion_rows: Dictionary) -> void:
 	for child in rows.get_children():
 		child.free()
 	_selectors.clear()
+	_reviewed_roles.clear()
 	_frame_selectors.clear()
 	_frames_manual = false
 	var roles: Array[String] = []
@@ -161,6 +177,8 @@ func _rebuild_rows(suggestion_rows: Dictionary) -> void:
 	)
 	for role in roles:
 		var data: Dictionary = suggestion_rows[role]
+		if data["confidence"] in ["certified", "manual", "unmapped"]:
+			_reviewed_roles[role] = true
 		var row := VBoxContainer.new()
 		rows.add_child(row)
 		var heading := HBoxContainer.new()
@@ -178,21 +196,38 @@ func _rebuild_rows(suggestion_rows: Dictionary) -> void:
 		var selector := OptionButton.new()
 		selector.name = "RigRole_" + role
 		selector.add_item("— Unmapped —" if data["required"] else "— Unmapped (optional) —")
+		var ordered_names: Array[String] = []
+		for candidate in data.get("candidates", []):
+			if candidate["target"] in _bone_names and candidate["target"] not in ordered_names:
+				ordered_names.append(candidate["target"])
 		for bone_name in _bone_names:
+			if bone_name not in ordered_names:
+				ordered_names.append(bone_name)
+		for bone_name in ordered_names:
 			selector.add_item(bone_name)
 		var target := String(data["target"])
-		selector.select(_bone_names.find(target) + 1 if not target.is_empty() else 0)
+		selector.select(ordered_names.find(target) + 1 if not target.is_empty() else 0)
 		selector.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		selector.tooltip_text = data["evidence"]
+		for candidate in data.get("candidates", []):
+			var candidate_index := ordered_names.find(candidate["target"]) + 1
+			if candidate_index > 0:
+				selector.get_popup().set_item_tooltip(candidate_index, candidate["evidence"])
 		row.add_child(selector)
 		_selectors[role] = selector
 		var evidence := Label.new()
 		evidence.text = data["evidence"]
+		var alternatives: Array[String] = []
+		for candidate in data.get("candidates", []).slice(0, 3):
+			alternatives.append(candidate["target"] + (" (review)" if not candidate["eligible"] else ""))
+		if alternatives.size() > 1:
+			evidence.text += "\nCandidates: " + ", ".join(alternatives)
 		evidence.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 		evidence.modulate = Color(0.66, 0.68, 0.72)
 		evidence.add_theme_font_size_override("font_size", 12)
 		row.add_child(evidence)
 		selector.item_selected.connect(func(_index: int) -> void:
+			_reviewed_roles[role] = true
 			data["confidence"] = "manual"
 			data["evidence"] = "Artist-selected override"
 			confidence.text = "manual"
@@ -205,6 +240,22 @@ func _rebuild_rows(suggestion_rows: Dictionary) -> void:
 		row.add_child(separator)
 	_refresh_root_role()
 	_build_frame_rows()
+
+func _suggest_unmapped() -> void:
+	var used := current_mapping().values()
+	for role in _selectors:
+		var selector := _selectors[role] as OptionButton
+		if selector.selected != 0 or _reviewed_roles.has(role):
+			continue
+		var target := String(_suggestions["rows"][role]["target"])
+		if target.is_empty() or target in used:
+			continue
+		for index in range(1, selector.item_count):
+			if selector.get_item_text(index) == target:
+				selector.select(index)
+				selector.item_selected.emit(index)
+				used.append(target)
+				break
 
 func _refresh_root_role() -> void:
 	if not _selectors.has("Root"):

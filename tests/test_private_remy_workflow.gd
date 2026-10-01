@@ -16,16 +16,17 @@ func _init() -> void:
 	call_deferred("_run")
 
 func _run() -> void:
-	if not FileAccess.file_exists(REMY_PATH):
+	var target_path := "res://tests/private_models/goal19_manual/remy-autorig-godot-universal.glb" if "--universal" in OS.get_cmdline_user_args() else REMY_PATH
+	if not FileAccess.file_exists(target_path):
 		print("SKIP: private Remy dock workflow (fixture is intentionally not distributed)")
 		quit(0)
 		return
-	var fixture := ResourceLoader.load(REMY_PATH, "PackedScene", ResourceLoader.CACHE_MODE_IGNORE) as PackedScene
-	var remy_hash := FileAccess.get_sha256(REMY_PATH)
+	var fixture := ResourceLoader.load(target_path, "PackedScene", ResourceLoader.CACHE_MODE_IGNORE) as PackedScene
+	var remy_hash := FileAccess.get_sha256(target_path)
 	var baseline := fixture.instantiate()
 	var baseline_player := _find_first(baseline, "AnimationPlayer") as AnimationPlayer
-	var bundled_names := baseline_player.get_animation_list()
-	var bundled_current := baseline_player.current_animation
+	var bundled_names := baseline_player.get_animation_list() if baseline_player != null else PackedStringArray()
+	var bundled_current := baseline_player.current_animation if baseline_player != null else StringName("")
 	# Rig Setup chooses profile paths by target path. Use a per-process scene
 	# so this test cannot overwrite/delete an artist's Remy profile.
 	var output_dir := "res://tests/.goal18_remy_%d" % OS.get_process_id()
@@ -72,10 +73,11 @@ func _run() -> void:
 	_check(dock._preview_panel.has_character(), "Remy character preview is available")
 	var character_preview := dock._character_preview
 	var follow_index: int = character_preview._follow_bone_index
+	var follow_name: StringName = dock._rig_profile.target_for("Root") if dock._rig_profile.root_motion_policy == "separate_root" else dock._rig_profile.target_for("Hips")
 	_check(
 		follow_index >= 0
-		and character_preview.skeleton().get_bone_name(follow_index) == "mixamorig_Hips",
-		"Hips-is-root profile gives camera following to mapped Mixamo Hips",
+		and character_preview.skeleton().get_bone_name(follow_index) == follow_name,
+		"profile gives camera following to its mapped motion owner",
 	)
 	character_preview.animation_player().seek(29.0 / 30.0, true)
 	character_preview._update_follow_target()
@@ -92,11 +94,12 @@ func _run() -> void:
 	)
 	var preview_root: Node = dock._character_preview.motion_scene()
 	var imported_player := _find_first_except(preview_root, "AnimationPlayer", "KimodoAnimationPlayer") as AnimationPlayer
-	_check(imported_player != null and imported_player.get_animation_list() == bundled_names and imported_player.current_animation == bundled_current, "preview preserves and does not play bundled target animations")
+	_check(_bundled_unchanged(imported_player, bundled_names, bundled_current), "preview preserves and does not play bundled target animations")
 
 	var saved_path := output_dir.path_join("remy_motion.res")
 	dock._preview_panel.submit_save_path(PreviewPanel.SaveKind.CHARACTER_ANIMATION, saved_path)
 	_check(FileAccess.file_exists(saved_path), "Remy character animation saves as a lightweight library")
+	_check_saved_playback(fixture, saved_path, character_preview.skeleton())
 	var preview_path := output_dir.path_join("remy_preview.tscn")
 	dock._preview_panel.submit_save_path(PreviewPanel.SaveKind.CHARACTER_PREVIEW, preview_path)
 	_check(FileAccess.file_exists(preview_path), "Remy Character Preview saves")
@@ -113,9 +116,8 @@ func _run() -> void:
 	)
 	saved_preview_root.free()
 	_check(
-		imported_player.get_animation_list() == bundled_names
-		and imported_player.current_animation == bundled_current
-		and FileAccess.get_sha256(REMY_PATH) == remy_hash,
+		_bundled_unchanged(imported_player, bundled_names, bundled_current)
+		and FileAccess.get_sha256(target_path) == remy_hash,
 		"preview save leaves live and imported Remy animations untouched",
 	)
 	var accepted_path := output_dir.path_join("remy_production.res")
@@ -161,6 +163,23 @@ func _run() -> void:
 	_remove_file(session_path)
 	_remove_file(profile_path)
 	_finish()
+
+func _bundled_unchanged(player: AnimationPlayer, names: PackedStringArray, current: StringName) -> bool:
+	return names.is_empty() if player == null else player.get_animation_list() == names and player.current_animation == current
+
+func _check_saved_playback(fixture: PackedScene, path: String, expected: Skeleton3D) -> void:
+	var fresh := fixture.instantiate()
+	root.add_child(fresh)
+	var skeleton := _find_first(fresh, "Skeleton3D") as Skeleton3D
+	var player := AnimationPlayer.new()
+	fresh.add_child(player)
+	var library := ResourceLoader.load(path, "AnimationLibrary", ResourceLoader.CACHE_MODE_IGNORE) as AnimationLibrary
+	player.add_animation_library("", library)
+	player.play("motion")
+	player.seek(29.0 / 30.0, true)
+	for index in skeleton.get_bone_count():
+		_check(skeleton.get_bone_global_pose(index).is_equal_approx(expected.get_bone_global_pose(index)), "saved animation plays on a fresh target: " + String(skeleton.get_bone_name(index)))
+	fresh.free()
 
 func _find_first(node: Node, type_name: StringName) -> Node:
 	if node.is_class(type_name):

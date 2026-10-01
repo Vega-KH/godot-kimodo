@@ -81,6 +81,25 @@ static func create(recipe: Dictionary) -> Dictionary:
 		skeleton.set_bone_rest(index, rest)
 		skeleton.set_bone_pose(index, rest)
 	original.free()
+	if recipe.get("common_pelvis", false):
+		# A common body helper carries torso + an unmapped colocated hip branch.
+		# Preserve every original joint's global rest when adding the branch.
+		var body := skeleton.find_bone(mapping["Hips"])
+		var body_name := _name("Body", recipe.get("names", "canonical"), body)
+		skeleton.set_bone_name(body, body_name)
+		mapping["Hips"] = body_name
+		var helper := skeleton.get_bone_count()
+		skeleton.add_bone(_name("Hip", recipe.get("names", "canonical"), helper))
+		skeleton.set_bone_parent(helper, body)
+		var helper_rest := Transform3D(Basis(Vector3.UP, 0.27), Vector3.ZERO)
+		skeleton.set_bone_rest(helper, helper_rest)
+		skeleton.set_bone_pose(helper, helper_rest)
+		for role in ["LeftUpperLeg", "RightUpperLeg"]:
+			var index := skeleton.find_bone(mapping[role])
+			var rest := helper_rest.affine_inverse() * skeleton.get_bone_rest(index)
+			skeleton.set_bone_parent(index, helper)
+			skeleton.set_bone_rest(index, rest)
+			skeleton.set_bone_pose(index, rest)
 	var scene := Node3D.new()
 	scene.name = "SyntheticCharacter"
 	scene.add_child(skeleton)
