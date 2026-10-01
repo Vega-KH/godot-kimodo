@@ -42,6 +42,8 @@ static func load_current(path: String, skeleton: Skeleton3D, signature: String) 
 	var loaded := ResourceLoader.load(validation["path"], "KimodoRigProfile", ResourceLoader.CACHE_MODE_IGNORE)
 	if loaded == null or not loaded is Profile:
 		return _error("invalid_profile", "The saved rig profile could not be loaded.")
+	if loaded.schema_version == 1:
+		loaded.upgrade_legacy(skeleton, signature)
 	if not loaded.is_current(skeleton, signature):
 		return _error("stale_profile", "The rig profile does not match the character's current skeleton. Open Rig Setup to review it.")
 	return {"ok": true, "profile": loaded, "path": validation["path"]}

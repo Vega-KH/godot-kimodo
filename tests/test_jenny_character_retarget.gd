@@ -62,13 +62,13 @@ func _run() -> void:
 	var multiple_skeletons := JENNY_SCENE.instantiate() as Node3D
 	multiple_skeletons.add_child(Skeleton3D.new())
 	_check(
-		Baker.validate_target(multiple_skeletons).contains("exactly one Skeleton3D"),
+		Baker.validate_target(multiple_skeletons).contains("one deform skeleton"),
 		"multiple target skeletons are rejected",
 	)
 	multiple_skeletons.free()
 	var no_skin := SOURCE_SCENE.instantiate()
 	_check(
-		Baker.validate_target(no_skin).contains("skinned MeshInstance3D"),
+		Baker.validate_target(no_skin).contains("no skinned mesh"),
 		"a target without skin bindings is rejected",
 	)
 	no_skin.free()
@@ -78,7 +78,7 @@ func _run() -> void:
 	invalid_rest.origin.x = NAN
 	non_finite_skeleton.set_bone_rest(0, invalid_rest)
 	_check(
-		Baker.validate_target(non_finite).contains("non-finite rest"),
+		Baker.validate_target(non_finite).contains("non-finite or non-invertible rest"),
 		"a non-finite target rest is rejected",
 	)
 	non_finite.free()
@@ -132,6 +132,16 @@ func _run() -> void:
 	var renamed_skeleton := _find_first(renamed_character, "Skeleton3D") as Skeleton3D
 	var renamed_index := renamed_skeleton.find_bone("LeftHand")
 	renamed_skeleton.set_bone_name(renamed_index, "CustomLeftHand")
+	# Rename the skin bindings too; otherwise this would be a broken asset,
+	# not an alternative naming convention. Do not mutate the imported Skin.
+	for found in renamed_character.find_children("*", "MeshInstance3D", true, false):
+		var mesh := found as MeshInstance3D
+		if mesh.skin == null:
+			continue
+		mesh.skin = mesh.skin.duplicate() as Skin
+		for bind in mesh.skin.get_bind_count():
+			if mesh.skin.get_bind_name(bind) == "LeftHand":
+				mesh.skin.set_bind_name(bind, "CustomLeftHand")
 	var renamed_mapping: Dictionary = rig_profile.canonical_to_target.duplicate(true)
 	renamed_mapping["LeftHand"] = "CustomLeftHand"
 	var renamed_profile_result := RigProfile.create(
@@ -154,6 +164,8 @@ func _run() -> void:
 			"renamed target receives the canonical LeftHand animation",
 		)
 		renamed_motion.scene.free()
+	else:
+		renamed_character.free()
 
 	var motion: RefCounted = Baker.create_motion(source, character)
 	_check(motion != null, "humanoid motion retargets to the skinned character")
@@ -175,7 +187,7 @@ func _run() -> void:
 	var invalid_skeleton := Skeleton3D.new()
 	invalid_skeleton.add_bone("Hips")
 	var validation_error := Baker.validate(source_skeleton, source_player, invalid_skeleton)
-	_check(validation_error.contains("Root"), "a target without Root is rejected clearly")
+	_check(validation_error.contains("Head"), "a target missing required body anatomy is rejected clearly")
 	invalid_skeleton.free()
 
 	var directory := "res://tests/.goal11_%d_%d" % [

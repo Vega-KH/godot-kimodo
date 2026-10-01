@@ -11,6 +11,8 @@ const RestOrientation := preload(
 	"res://addons/kimodo_motion/retargeting/rest_orientation.gd"
 )
 const ProjectPaths := preload("res://addons/kimodo_motion/domain/project_paths.gd")
+const Geometry := preload("res://addons/kimodo_motion/retargeting/rig_geometry.gd")
+const Compatibility := preload("res://addons/kimodo_motion/retargeting/rig_compatibility.gd")
 const ANIMATION_NAME := "motion"
 const PLAYER_NODE_NAME := "KimodoAnimationPlayer"
 
@@ -84,12 +86,10 @@ static func create_motion(
 static func validate_target(character_root: Node, rig_profile: RefCounted = null) -> String:
 	if character_root == null:
 		return "Character target could not be instantiated"
-	var skeletons := character_root.find_children("*", "Skeleton3D", true, false)
-	if character_root is Skeleton3D:
-		skeletons.push_front(character_root)
-	if skeletons.size() != 1:
-		return "Character target must contain exactly one Skeleton3D (found %d)" % skeletons.size()
-	var skeleton := skeletons[0] as Skeleton3D
+	var compatibility := Compatibility.inspect(character_root)
+	if not compatibility["ok"]:
+		return compatibility["message"]
+	var skeleton: Skeleton3D = compatibility["skeleton"]
 	if rig_profile == null:
 		var profile_result := RigProfile.exact_names(
 			skeleton, character_root.get_path_to(skeleton)
@@ -97,6 +97,9 @@ static func validate_target(character_root: Node, rig_profile: RefCounted = null
 		if not profile_result["ok"]:
 			return profile_result["message"]
 		rig_profile = profile_result["profile"]
+	var profile_error: String = rig_profile.validate_for(skeleton)
+	if not profile_error.is_empty():
+		return profile_error
 	var required: Array = ["Hips"] + rig_profile.rotation_targets()
 	if rig_profile.root_motion_policy == RigProfile.ROOT_SEPARATE:
 		required.push_front("Root")
@@ -104,19 +107,6 @@ static func validate_target(character_root: Node, rig_profile: RefCounted = null
 		var target_name: StringName = rig_profile.target_for(canonical_name)
 		if target_name.is_empty() or skeleton.find_bone(target_name) < 0:
 			return "Character rig profile cannot resolve %s" % canonical_name
-	for bone_index in skeleton.get_bone_count():
-		if not skeleton.get_bone_rest(bone_index).is_finite():
-			return "Character skeleton has a non-finite rest transform at bone %s" % skeleton.get_bone_name(bone_index)
-	var skinned_meshes := 0
-	for found in character_root.find_children("*", "MeshInstance3D", true, false):
-		var mesh_instance := found as MeshInstance3D
-		if mesh_instance.skin == null:
-			continue
-		if mesh_instance.skin.get_bind_count() <= 0:
-			return "Character mesh %s has an empty Skin binding" % mesh_instance.name
-		skinned_meshes += 1
-	if skinned_meshes == 0:
-		return "Character target must contain at least one skinned MeshInstance3D"
 	if character_root.get_node_or_null(PLAYER_NODE_NAME) != null:
 		return "Character target already owns the reserved %s node" % PLAYER_NODE_NAME
 	return ""
@@ -139,6 +129,9 @@ static func validate(
 		if not profile_result["ok"]:
 			return profile_result["message"]
 		rig_profile = profile_result["profile"]
+	var profile_error: String = rig_profile.validate_for(target_skeleton)
+	if not profile_error.is_empty():
+		return profile_error
 	var required: Array = ["Hips"] + rig_profile.rotation_targets()
 	if rig_profile.root_motion_policy == RigProfile.ROOT_SEPARATE:
 		required.push_front("Root")
@@ -341,7 +334,7 @@ static func _target_local_poses(
 	target_locals.resize(target.get_bone_count())
 	target_globals.resize(target.get_bone_count())
 	var translation_scale: float = rig_profile.translation_scale(source)
-	for target_index in target.get_bone_count():
+	for target_index in Geometry.order(target):
 		var target_name := target.get_bone_name(target_index)
 		var canonical_name: StringName = rig_profile.canonical_for(target_name)
 		var parent_index := target.get_bone_parent(target_index)
@@ -398,29 +391,29 @@ static func _direction_corrected_rest_basis(
 	var target_index := target.find_bone(rig_profile.target_for(canonical_name))
 	var target_basis := target_global_rests[target_index].basis
 	var frame_owner := HumanoidMap.orientation_frame_owner_for_target(canonical_name)
-	var frame: Dictionary = HumanoidMap.orientation_frame_for_target(frame_owner)
+	var frame: Dictionary = rig_profile.hand_frames.get(String(frame_owner), {})
 	if not frame.is_empty():
 		var source_frame := RestOrientation.anatomical_frame(
 			source,
 			source_global_rests,
 			frame_owner,
-			frame["forward"],
-			frame["lateral_from"],
-			frame["lateral_to"],
+			frame["source_forward"],
+			frame["source_lateral_from"],
+			frame["source_lateral_to"],
 		)
 		var target_frame := RestOrientation.anatomical_frame(
 			target,
 			target_global_rests,
 			rig_profile.target_for(frame_owner),
-			rig_profile.target_for(frame["forward"]),
-			rig_profile.target_for(frame["lateral_from"]),
-			rig_profile.target_for(frame["lateral_to"]),
+			frame["target_forward"],
+			frame["target_lateral_from"],
+			frame["target_lateral_to"],
 		)
 		if not source_frame["ok"] or not target_frame["ok"]:
 			push_error("Validated hand orientation frame became unavailable")
 			return target_basis
 		return source_frame["basis"] * target_frame["basis"].inverse() * target_basis
-	var child_canonical := HumanoidMap.direction_child_for_target(canonical_name)
+	var child_canonical: StringName = rig_profile.direction_child(canonical_name)
 	if child_canonical.is_empty() or rig_profile.target_for(child_canonical).is_empty():
 		return target_basis
 	var source_child_index := source.find_bone(child_canonical)
@@ -442,22 +435,24 @@ static func _validate_orientation_frame(
 	target_rests: Array[Transform3D],
 	rig_profile: RefCounted,
 ) -> String:
-	var frame: Dictionary = HumanoidMap.orientation_frame_for_target(canonical_name)
+	var frame: Dictionary = rig_profile.hand_frames.get(String(canonical_name), {})
+	if frame.is_empty():
+		return "No palm frame is saved for %s. Review Hand Frames in Rig Setup." % canonical_name
 	var source_frame := RestOrientation.anatomical_frame(
 		source,
 		source_rests,
 		canonical_name,
-		frame["forward"],
-		frame["lateral_from"],
-		frame["lateral_to"],
+		frame["source_forward"],
+		frame["source_lateral_from"],
+		frame["source_lateral_to"],
 	)
 	if not source_frame["ok"]:
 		return "Humanoid %s" % source_frame["message"]
 	var target_names := [
 		rig_profile.target_for(canonical_name),
-		rig_profile.target_for(frame["forward"]),
-		rig_profile.target_for(frame["lateral_from"]),
-		rig_profile.target_for(frame["lateral_to"]),
+		StringName(frame["target_forward"]),
+		StringName(frame["target_lateral_from"]),
+		StringName(frame["target_lateral_to"]),
 	]
 	for target_name in target_names:
 		if target_name.is_empty():
@@ -483,7 +478,7 @@ static func _sample_global_poses(
 ) -> Array[Transform3D]:
 	var globals: Array[Transform3D] = []
 	globals.resize(skeleton.get_bone_count())
-	for index in skeleton.get_bone_count():
+	for index in Geometry.order(skeleton):
 		var bone_name := skeleton.get_bone_name(index)
 		var rest := skeleton.get_bone_rest(index)
 		var position := rest.origin
@@ -505,13 +500,7 @@ static func _sample_global_poses(
 
 
 static func _global_rests(skeleton: Skeleton3D) -> Array[Transform3D]:
-	var rests: Array[Transform3D] = []
-	rests.resize(skeleton.get_bone_count())
-	for index in skeleton.get_bone_count():
-		var local := skeleton.get_bone_rest(index)
-		var parent := skeleton.get_bone_parent(index)
-		rests[index] = local if parent < 0 else rests[parent] * local
-	return rests
+	return Geometry.global_rests(skeleton)
 
 
 static func _index_tracks(animation: Animation) -> Dictionary:

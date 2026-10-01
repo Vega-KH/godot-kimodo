@@ -147,6 +147,22 @@ func _run() -> void:
 	rig_setup.save_requested.connect(func(mapping: Dictionary, _policy: String) -> void: saved_mapping[0] = mapping)
 	rig_setup.save_button.emit_signal("pressed")
 	_check(saved_mapping[0]["Hips"] == "Hips", "rig setup emits the reviewed mapping")
+	var suggested_frames: Dictionary = rig_setup.current_hand_frames()
+	var forward := rig_setup.find_child("HandFrame_LeftHand_target_forward", true, false) as OptionButton
+	for index in forward.item_count:
+		if forward.get_item_text(index) == "LeftIndexProximal":
+			forward.select(index)
+			forward.emit_signal("item_selected", index)
+			break
+	var chest := rig_setup.find_child("RigRole_Chest", true, false) as OptionButton
+	chest.select(0)
+	chest.emit_signal("item_selected", 0)
+	_check(rig_setup.current_hand_frames()["LeftHand"]["target_forward"] == "LeftIndexProximal", "manual palm choices survive unrelated mapping edits")
+	rig_setup.reset_button.emit_signal("pressed")
+	_check(rig_setup.current_hand_frames() == suggested_frames, "Reset Suggestions resets palm pairs explicitly")
+	rig_setup.root_policy.select(1)
+	rig_setup.root_policy.emit_signal("item_selected", 1)
+	_check((rig_setup.find_child("RigLabel_Root", true, false) as Label).text.contains("leave unmapped"), "Root row reflects the selected root policy immediately")
 	setup_skeleton.free()
 
 	preview.clear_takes()

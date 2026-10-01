@@ -51,7 +51,7 @@ func _run() -> void:
 	_check(invalid_scene.pack(invalid_root) == OK, "invalid target packs for validation coverage")
 	invalid_root.free()
 	dock._on_character_target_changed(invalid_scene)
-	_check(status.text.contains("skinned MeshInstance3D"), "structurally invalid target reports its missing skin")
+	_check(status.text.contains("no skinned mesh"), "structurally invalid target reports its missing skin")
 	_check(not clear.disabled, "an incompatible selection can still be cleared")
 	clear.emit_signal("pressed")
 	_check(dock._character_target == null, "clear resets the target resource")

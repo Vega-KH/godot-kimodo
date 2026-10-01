@@ -104,6 +104,15 @@ Invoke-GodotCheck -Name 'Versioned rig profiles and deterministic matching' -God
 Invoke-GodotCheck -Name 'Private Remy profile workflow when staged' -GodotArguments @(
     '--headless', '--path', '.', '--script', 'res://tests/test_private_remy_workflow.gd'
 )
+Invoke-GodotCheck -Name 'Generic variant anatomy, geometry and saved playback' -GodotArguments @(
+    '--headless', '--path', '.', '--script', 'res://tests/test_rig_variants.gd'
+)
+Invoke-GodotCheck -Name 'Private import compatibility and actionable rejection when staged' -GodotArguments @(
+    '--headless', '--path', '.', '--script', 'res://tests/test_private_variant_import.gd'
+)
+Invoke-GodotCheck -Name 'Private Jenny04 complete workflow when staged' -GodotArguments @(
+    '--headless', '--path', '.', '--script', 'res://tests/test_private_jenny04_workflow.gd'
+)
 Invoke-GodotCheck -Name 'Dock skinned-character preview and save lifecycle' -GodotArguments @(
     '--headless', '--path', '.', '--script', 'res://tests/test_character_dock_retarget.gd'
 )

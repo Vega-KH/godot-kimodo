@@ -120,21 +120,41 @@ repository's 56-bone Godot humanoid A-pose. The preview layer selector switches
 between the cyan SOMA-77 source, pink humanoid intermediate, and selected
 character result while all three remain at the same playback time.
 
-The selected target must contain exactly one `Skeleton3D`, finite rest
-transforms, and at least one bound skin. Exact Godot humanoid names configure
+The selected target must contain exactly one `Skeleton3D`, finite/invertible rest
+transforms, and at least one bound skin with matching bind and rest poses.
+One positive uniform bind-space scale shared by every skin binding is accepted
+(for example, importer compensation for a scaled parent empty). It is detected,
+not applied to or removed from the asset. Per-bone/per-mesh scale differences
+and rotated, translated, reflected, sheared or non-uniform bind-space offsets
+remain incompatible.
+Incompatible assets receive a message identifying the affected mesh/bone and
+the repair needed before re-export. Rotation-only transfer also rejects reflected,
+sheared, or materially non-uniform bone rest scales; ordinary scene-node
+transforms and small exporter rounding are handled separately. Exact Godot humanoid names configure
 Jenny automatically. Other regular humanoid rigs open the focused **Rig Setup**
 tab, where deterministic suggestions show their confidence and evidence, every
 canonical role has an editable target or explicit Unmapped choice, and the
 artist certifies a versioned project-owned `KimodoRigProfile`. Profiles are
 reused only for the exact recorded skeleton signature; a changed rig returns to
 setup instead of silently applying stale mappings. The matcher understands
-normalized namespaces/prefixes and curated Mixamo aliases, while manual choices
-always win. Wrist transfer uses a full
-hand frame derived from the middle-finger direction and index-to-little-finger
-palm axis, preserving both flexion and roll across differing rest bases. Every
+normalized namespaces/prefixes, Mixamo aliases, sided `.L`/`.R` or `_L`/`_R`
+names, and numbered chains, while manual choices always win. Pelvis, head,
+hands, feet and major limb chains are required, along with at least one mapped
+Spine/Chest/UpperChest segment. Neck, shoulders, toes, extra torso segments,
+eyes, jaw and digits may be intentionally unmapped. Every mapped subset must
+retain anatomical chain order; different bone index ordering is supported.
+Wrist transfer uses a shared palm frame with saved **source role / target bone**
+landmark pairs in the bottom of Rig Setup. Suggestions use available finger
+geometry (for example, index-to-ring on a four-finger hand). Artists can review
+and replace these pairs. Missing or collinear palm geometry cannot certify;
+fingerless rigs need usable explicit palm landmarks and are not silently guessed.
+The frame preserves flexion and roll across differing rest bases. Every
 finger and thumb joint shares that same palm frame instead of independently
 aligning a single segment direction; this keeps bone roll determinate and
 prevents large compensating twists in skinned thumbs.
+Omitted torso/intermediate roles do not discard the mapped descendant's source
+motion. Goal 18 schema-1 profiles upgrade in memory only when their certified
+skeleton signature matches; the disk resource changes only on explicit Save Profile.
 Unmapped branch bones, such as ponytail bones under `Head`, receive no Kimodo
 tracks and continue to inherit their animated parent normally. Changing the
 character rebuilds the derived preview automatically. **Clear** removes only

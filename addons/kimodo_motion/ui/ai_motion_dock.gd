@@ -18,6 +18,7 @@ const RigSetupPanel := preload("res://addons/kimodo_motion/ui/rig_setup_panel.gd
 const RigProfile := preload("res://addons/kimodo_motion/retargeting/kimodo_rig_profile.gd")
 const RigMatcher := preload("res://addons/kimodo_motion/retargeting/rig_candidate_matcher.gd")
 const RigProfileStore := preload("res://addons/kimodo_motion/retargeting/rig_profile_store.gd")
+const RigCompatibility := preload("res://addons/kimodo_motion/retargeting/rig_compatibility.gd")
 const TakeArchive := preload("res://addons/kimodo_motion/domain/take_archive_service.gd")
 const AcceptanceService := preload(
 	"res://addons/kimodo_motion/domain/acceptance_service.gd"
@@ -930,6 +931,7 @@ func _on_character_target_changed(resource: Resource) -> void:
 	_clear_character_preview()
 	_character_target = null
 	_rig_profile = null
+	_rig_setup_panel.clear()
 	if _rig_setup_skeleton != null:
 		_rig_setup_skeleton.free()
 		_rig_setup_skeleton = null
@@ -1035,11 +1037,12 @@ func _on_save_rig_profile(mapping: Dictionary, root_policy: String) -> void:
 	if _draft == null or _character_target == null or _rig_setup_skeleton == null:
 		_rig_setup_panel.show_error("Choose a character in an active session first.")
 		return
-	var issues := RigMatcher.diagnose(_rig_setup_skeleton, mapping, root_policy)
+	var frames: Dictionary = _rig_setup_panel.current_hand_frames()
+	var issues := RigMatcher.diagnose(_rig_setup_skeleton, mapping, root_policy, frames)
 	if not issues.is_empty():
 		_rig_setup_panel.show_error("; ".join(issues))
 		return
-	var created := RigProfile.create(mapping, _rig_setup_skeleton_path, _rig_setup_skeleton, root_policy, "leg_height")
+	var created := RigProfile.create(mapping, _rig_setup_skeleton_path, _rig_setup_skeleton, root_policy, "leg_height", frames)
 	if not created["ok"]:
 		_rig_setup_panel.show_error(created["message"])
 		return
@@ -1085,25 +1088,9 @@ func _on_save_rig_profile(mapping: Dictionary, root_policy: String) -> void:
 
 
 func _validate_character_structure(character_root: Node) -> String:
-	var skeletons := character_root.find_children("*", "Skeleton3D", true, false)
-	if character_root is Skeleton3D:
-		skeletons.push_front(character_root)
-	if skeletons.size() != 1:
-		return "Character target must contain exactly one Skeleton3D (found %d)" % skeletons.size()
-	var skeleton := skeletons[0] as Skeleton3D
-	for bone_index in skeleton.get_bone_count():
-		if not skeleton.get_bone_rest(bone_index).is_finite():
-			return "Character skeleton has a non-finite rest transform at bone %s" % skeleton.get_bone_name(bone_index)
-	var skinned_meshes := 0
-	for found in character_root.find_children("*", "MeshInstance3D", true, false):
-		var mesh_instance := found as MeshInstance3D
-		if mesh_instance.skin == null:
-			continue
-		if mesh_instance.skin.get_bind_count() <= 0:
-			return "Character mesh %s has an empty Skin binding" % mesh_instance.name
-		skinned_meshes += 1
-	if skinned_meshes == 0:
-		return "Character target must contain at least one skinned MeshInstance3D"
+	var compatibility := RigCompatibility.inspect(character_root)
+	if not compatibility["ok"]:
+		return compatibility["message"]
 	if character_root.get_node_or_null(HumanoidCharacterBaker.PLAYER_NODE_NAME) != null:
 		return "Character target already owns the reserved %s node" % HumanoidCharacterBaker.PLAYER_NODE_NAME
 	return ""
@@ -1162,8 +1149,10 @@ func _update_character_availability() -> void:
 func _set_character_error(message: String) -> void:
 	_character_status.modulate = Color(1.0, 0.35, 0.3)
 	_character_status.text = message
+	_rig_setup_panel.show_error(message)
 	_preview_panel.show_save_error(message)
-	_update_save_availability()
+	_update_character_availability()
+	_update_generation_availability()
 
 
 func _on_save_path_selected(kind: int, requested_path: String) -> void:

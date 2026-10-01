@@ -5,6 +5,7 @@ extends RefCounted
 const Session := preload("res://addons/kimodo_motion/domain/motion_session.gd")
 const SessionStore := preload("res://addons/kimodo_motion/domain/motion_session_store.gd")
 const ProjectPaths := preload("res://addons/kimodo_motion/domain/project_paths.gd")
+const RigCompatibility := preload("res://addons/kimodo_motion/retargeting/rig_compatibility.gd")
 const CharacterBaker := preload(
 	"res://addons/kimodo_motion/retargeting/humanoid_character_baker.gd"
 )
@@ -339,6 +340,10 @@ static func _validate_clean_target(
 	var target := target_scene.instantiate() as Node3D
 	if target == null:
 		return _error("invalid_target", "The selected target could not be instantiated.")
+	var compatibility := RigCompatibility.inspect(target)
+	if not compatibility["ok"]:
+		target.free()
+		return _error("invalid_target", compatibility["message"])
 	var skeleton := _find_first(target, "Skeleton3D") as Skeleton3D
 	if skeleton == null or SessionStore.skeleton_signature(skeleton) != expected_signature:
 		target.free()

@@ -20,13 +20,22 @@ func _run() -> void:
 		print("SKIP: private Remy dock workflow (fixture is intentionally not distributed)")
 		quit(0)
 		return
-	var remy := ResourceLoader.load(REMY_PATH, "PackedScene", ResourceLoader.CACHE_MODE_IGNORE) as PackedScene
+	var fixture := ResourceLoader.load(REMY_PATH, "PackedScene", ResourceLoader.CACHE_MODE_IGNORE) as PackedScene
 	var remy_hash := FileAccess.get_sha256(REMY_PATH)
-	var baseline := remy.instantiate()
+	var baseline := fixture.instantiate()
 	var baseline_player := _find_first(baseline, "AnimationPlayer") as AnimationPlayer
 	var bundled_names := baseline_player.get_animation_list()
 	var bundled_current := baseline_player.current_animation
+	# Rig Setup chooses profile paths by target path. Use a per-process scene
+	# so this test cannot overwrite/delete an artist's Remy profile.
+	var output_dir := "res://tests/.goal18_remy_%d" % OS.get_process_id()
+	DirAccess.make_dir_recursive_absolute(ProjectSettings.globalize_path(output_dir))
+	var isolated := PackedScene.new()
+	_check(isolated.pack(baseline) == OK, "isolated Remy target packs")
+	var isolated_path := output_dir.path_join("target.tscn")
+	_check(ResourceSaver.save(isolated, isolated_path) == OK, "isolated Remy target saves")
 	baseline.free()
+	var remy := ResourceLoader.load(isolated_path, "PackedScene", ResourceLoader.CACHE_MODE_IGNORE) as PackedScene
 
 	var dock := Dock.new()
 	root.add_child(dock)
@@ -85,7 +94,6 @@ func _run() -> void:
 	var imported_player := _find_first_except(preview_root, "AnimationPlayer", "KimodoAnimationPlayer") as AnimationPlayer
 	_check(imported_player != null and imported_player.get_animation_list() == bundled_names and imported_player.current_animation == bundled_current, "preview preserves and does not play bundled target animations")
 
-	var output_dir := "res://tests/.goal18_remy_%d" % OS.get_process_id()
 	var saved_path := output_dir.path_join("remy_motion.res")
 	dock._preview_panel.submit_save_path(PreviewPanel.SaveKind.CHARACTER_ANIMATION, saved_path)
 	_check(FileAccess.file_exists(saved_path), "Remy character animation saves as a lightweight library")

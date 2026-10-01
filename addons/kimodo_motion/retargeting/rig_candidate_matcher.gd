@@ -3,7 +3,7 @@ extends RefCounted
 
 const HumanoidMap := preload("res://addons/kimodo_motion/retargeting/soma77_humanoid_map.gd")
 const Profile := preload("res://addons/kimodo_motion/retargeting/kimodo_rig_profile.gd")
-const RestOrientation := preload("res://addons/kimodo_motion/retargeting/rest_orientation.gd")
+const Geometry := preload("res://addons/kimodo_motion/retargeting/rig_geometry.gd")
 
 const MIXAMO_ALIASES := {
 	"Hips": "hips", "Spine": "spine", "Chest": "spine1", "UpperChest": "spine2",
@@ -28,7 +28,7 @@ static func suggest(skeleton: Skeleton3D) -> Dictionary:
 		normalized[key].append(bone)
 	var suggestions := {}
 	for role in roles:
-		var row := {"role": role, "target": "", "confidence": "unmatched", "evidence": "No reliable candidate", "required": role not in Profile.OPTIONAL_ROLES, "conflict": false}
+		var row := {"role": role, "target": "", "confidence": "unmatched", "evidence": "Required role needs a manual mapping" if role in Profile.REQUIRED_BODY else "Optional role may be intentionally left unmapped", "required": role in Profile.REQUIRED_BODY or role == "Root", "conflict": false}
 		if skeleton.find_bone(role) >= 0:
 			row.merge({"target": role, "confidence": "high", "evidence": "Exact Godot humanoid name"}, true)
 		else:
@@ -36,9 +36,15 @@ static func suggest(skeleton: Skeleton3D) -> Dictionary:
 			if normalized.has(key) and normalized[key].size() == 1:
 				row.merge({"target": normalized[key][0], "confidence": "high", "evidence": "Normalized name after namespace/prefix stripping"}, true)
 			else:
-				var alias := _alias_for(role)
-				if normalized.has(alias) and normalized[alias].size() == 1:
-					row.merge({"target": normalized[alias][0], "confidence": "high", "evidence": "Curated Mixamo alias with side and chain semantics"}, true)
+				var matches: Array[String] = []
+				for alias in _aliases_for(role):
+					for candidate in normalized.get(alias, []):
+						if candidate not in matches:
+							matches.append(candidate)
+				if matches.size() == 1:
+					row.merge({"target": matches[0], "confidence": "high", "evidence": "Curated Mixamo / sided / numbered-chain alias; review hierarchy"}, true)
+				elif matches.size() > 1:
+					row["evidence"] = "Ambiguous aliases: %s. Choose the deform bone manually." % ", ".join(matches)
 		suggestions[role] = row
 	# A conservative structural tier is useful on regular rigs with poor names.
 	# It suggests only a unique, non-degenerate child on the correct side and
@@ -57,7 +63,7 @@ static func suggest(skeleton: Skeleton3D) -> Dictionary:
 		suggestions["Root"]["required"] = false
 		suggestions["Root"]["evidence"] = "Hips is the skeleton root; use the explicit Hips-is-root motion policy"
 	_mark_conflicts(suggestions)
-	return {"rows": suggestions, "root_motion_policy": root_policy}
+	return {"rows": suggestions, "root_motion_policy": root_policy, "hand_frames": Profile.suggest_hand_frames(mapping_from_rows(suggestions))}
 
 static func mapping_from_rows(rows: Dictionary) -> Dictionary:
 	var mapping := {}
@@ -70,6 +76,8 @@ static func mapping_from_rows(rows: Dictionary) -> Dictionary:
 static func reviewed(profile: Resource, suggestions: Dictionary) -> Dictionary:
 	var result := suggestions.duplicate(true)
 	result["root_motion_policy"] = profile.root_motion_policy
+	result["hand_frames"] = profile.hand_frames.duplicate(true)
+	result["rows"]["Root"]["required"] = profile.root_motion_policy == Profile.ROOT_SEPARATE
 	for role in result["rows"]:
 		var row: Dictionary = result["rows"][role]
 		var target := String(profile.canonical_to_target.get(String(role), ""))
@@ -88,19 +96,16 @@ static func reviewed(profile: Resource, suggestions: Dictionary) -> Dictionary:
 		result["rows"][role] = row
 	return result
 
-static func diagnose(skeleton: Skeleton3D, mapping: Dictionary, root_policy: String) -> Array[String]:
+static func diagnose(skeleton: Skeleton3D, mapping: Dictionary, root_policy: String, frames: Dictionary = {}) -> Array[String]:
 	var issues: Array[String] = []
 	for side in ["Left", "Right"]:
 		for role in mapping:
-			if String(role).begins_with(side) and normalize(String(mapping[role])).contains(("right" if side == "Left" else "left")):
+			if String(role).begins_with(side) and normalize(String(mapping[role])).begins_with(("right" if side == "Left" else "left")):
 				issues.append("%s is assigned to the wrong side bone %s" % [role, mapping[role]])
-	var created := Profile.create(mapping, NodePath("."), skeleton, root_policy)
+	var created := Profile.create(mapping, NodePath("."), skeleton, root_policy, "none", frames)
 	if not created["ok"]:
 		issues.append(created["message"])
 		return issues
-	for pair in [["Hips", "Spine"], ["Spine", "Chest"], ["Chest", "UpperChest"], ["UpperChest", "Neck"], ["Neck", "Head"], ["LeftUpperArm", "LeftLowerArm"], ["LeftLowerArm", "LeftHand"], ["RightUpperArm", "RightLowerArm"], ["RightLowerArm", "RightHand"], ["LeftUpperLeg", "LeftLowerLeg"], ["LeftLowerLeg", "LeftFoot"], ["RightUpperLeg", "RightLowerLeg"], ["RightLowerLeg", "RightFoot"]]:
-		if mapping.has(pair[0]) and mapping.has(pair[1]) and not _is_descendant(skeleton, String(mapping[pair[1]]), String(mapping[pair[0]])):
-			issues.append("%s must descend from %s" % [pair[1], pair[0]])
 	for parent_role in HumanoidMap.DIRECTION_CHILDREN:
 		var child_role: String = HumanoidMap.DIRECTION_CHILDREN[parent_role]
 		if mapping.has(parent_role) and mapping.has(child_role) and not _is_descendant(skeleton, String(mapping[child_role]), String(mapping[parent_role])):
@@ -122,21 +127,39 @@ static func diagnose(skeleton: Skeleton3D, mapping: Dictionary, root_policy: Str
 				issues.append("%s and %s have degenerate rest geometry" % [role, child])
 			elif segment_length > maximum_segment:
 				issues.append("%s and %s have implausible rest geometry" % [role, child])
-	for hand in ["LeftHand", "RightHand"]:
-		var frame: Dictionary = HumanoidMap.ORIENTATION_FRAMES[hand]
-		if not mapping.has(hand) or not mapping.has(frame["forward"]) or not mapping.has(frame["lateral_from"]) or not mapping.has(frame["lateral_to"]):
-			continue
-		var result := RestOrientation.anatomical_frame(skeleton, rests, mapping[hand], mapping[frame["forward"]], mapping[frame["lateral_from"]], mapping[frame["lateral_to"]])
-		if not result["ok"]:
-			issues.append("%s" % result["message"])
 	return issues
 
 static func normalize(name: String) -> String:
-	var value := name.to_lower().replace("mixamorig", "")
+	var value := name.get_slice(":", name.get_slice_count(":") - 1).to_lower().replace("mixamorig", "")
+	for prefix in ["armature_", "skeleton_", "rig_"]:
+		value = value.trim_prefix(prefix)
+	for side in [["l", "left"], ["r", "right"]]:
+		for separator in [".", "_", "-"]:
+			if value.ends_with(separator + side[0]):
+				value = side[1] + value.trim_suffix(separator + side[0])
+			elif value.begins_with(side[0] + separator):
+				value = side[1] + value.trim_prefix(side[0] + separator)
 	var result := ""
 	for character in value:
 		if character >= "a" and character <= "z" or character >= "0" and character <= "9":
 			result += character
+	return result
+
+static func _aliases_for(role: String) -> Array[String]:
+	var result: Array[String] = [_alias_for(role)]
+	var core := {"Hips": "pelvis", "Spine": "spine01", "Chest": "spine02", "UpperChest": "spine03", "Neck": "neck01"}
+	if core.has(role):
+		result.append(core[role])
+	for side in ["Left", "Right"]:
+		var lower: String = side.to_lower()
+		var body := {"Shoulder": "clavicle", "UpperArm": "upperarm", "LowerArm": "lowerarm", "Hand": "hand", "UpperLeg": "thigh", "LowerLeg": "calf", "Foot": "foot", "Toes": "ball", "Eye": "eye"}
+		for part in body:
+			if role == side + part:
+				result.append(lower + body[part])
+		for digit in DIGITS:
+			for joint in DIGITS[digit].size():
+				if role == side + digit + DIGITS[digit][joint]:
+					result.append(lower + String(digit).to_lower() + "%02d" % (joint + 1))
 	return result
 
 static func _alias_for(role: String) -> String:
@@ -176,6 +199,12 @@ static func _structural_candidate(skeleton: Skeleton3D, role: String, rows: Dict
 		if skeleton.get_bone_parent(index) != parent_index:
 			continue
 		var name := String(skeleton.get_bone_name(index))
+		var already_used := false
+		for row in rows.values():
+			if row["target"] == name:
+				already_used = true
+		if already_used:
+			continue
 		var normalized_name := normalize(name)
 		if role.begins_with("Left") and not normalized_name.contains("left"):
 			continue
@@ -203,9 +232,4 @@ static func _is_descendant(skeleton: Skeleton3D, child_name: String, ancestor_na
 	return false
 
 static func _global_rests(skeleton: Skeleton3D) -> Array[Transform3D]:
-	var rests: Array[Transform3D] = []
-	rests.resize(skeleton.get_bone_count())
-	for index in skeleton.get_bone_count():
-		var parent := skeleton.get_bone_parent(index)
-		rests[index] = skeleton.get_bone_rest(index) if parent < 0 else rests[parent] * skeleton.get_bone_rest(index)
-	return rests
+	return Geometry.global_rests(skeleton)

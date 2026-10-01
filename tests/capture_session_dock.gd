@@ -41,8 +41,16 @@ func _run() -> void:
 	await _settle()
 	_capture(output_directory.path_join("session_generate.png"))
 	var rig_profile_path := ""
+	var remy_capture_path := ""
 	if ResourceLoader.exists(REMY_PATH):
-		var remy := ResourceLoader.load(REMY_PATH, "PackedScene", ResourceLoader.CACHE_MODE_REUSE)
+		var original_remy := ResourceLoader.load(REMY_PATH, "PackedScene", ResourceLoader.CACHE_MODE_REUSE) as PackedScene
+		var isolated_root := original_remy.instantiate()
+		var remy := PackedScene.new()
+		remy.pack(isolated_root)
+		isolated_root.free()
+		remy_capture_path = "res://tests/private_models/capture_remy_%d.tscn" % OS.get_process_id()
+		ResourceSaver.save(remy, remy_capture_path)
+		remy = ResourceLoader.load(remy_capture_path, "PackedScene", ResourceLoader.CACHE_MODE_IGNORE) as PackedScene
 		dock._on_character_target_changed(remy)
 		await _settle()
 		_capture(output_directory.path_join("rig_setup_remy.png"))
@@ -81,6 +89,8 @@ func _run() -> void:
 		DirAccess.remove_absolute(ProjectSettings.globalize_path(session_path))
 	if not rig_profile_path.is_empty() and FileAccess.file_exists(rig_profile_path):
 		DirAccess.remove_absolute(ProjectSettings.globalize_path(rig_profile_path))
+	if not remy_capture_path.is_empty():
+		DirAccess.remove_absolute(ProjectSettings.globalize_path(remy_capture_path))
 	_remove_tree(session_data_path)
 	quit(0)
 
