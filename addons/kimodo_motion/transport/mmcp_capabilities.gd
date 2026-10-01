@@ -81,18 +81,13 @@ static func parse_payload(payload: Variant) -> Dictionary:
 		return skeleton_result
 
 	var constraints_result := _string_array(
-		model.get("supported_constraints"), "supported_constraints"
+		model.get("supported_constraints", []), "supported_constraints"
 	)
 	if not constraints_result["ok"]:
 		return constraints_result
 	var constraints: Array[String] = constraints_result["value"]
-	for required in Contract.CONSTRAINT_TYPES:
-		if not constraints.has(required):
-			return _error(
-				"unsupported_model",
-				"The backend is missing required constraint support.",
-				"Missing constraint type: %s" % required,
-			)
+	# Basic text generation does not use advanced constraints. Keep their typed
+	# advertised list for future authoring, without requiring unused features.
 
 	var contacts_result := _string_array(
 		model.get("predicted_contact_joints"), "predicted_contact_joints"

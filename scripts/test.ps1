@@ -68,6 +68,9 @@ Invoke-GodotCheck -Name 'Durable generated-take archive' -GodotArguments @(
 Invoke-GodotCheck -Name 'Undoable production-library acceptance' -GodotArguments @(
     '--headless', '--path', '.', '--script', 'res://tests/test_acceptance_service.gd'
 )
+Invoke-GodotCheck -Name 'Verified session deletion and recovery' -GodotArguments @(
+    '--headless', '--path', '.', '--script', 'res://tests/test_session_deletion.gd'
+)
 Invoke-GodotCheck -Name 'Multiple take response contract' -GodotArguments @(
     '--headless', '--path', '.', '--script', 'res://tests/test_multiple_takes.gd'
 )

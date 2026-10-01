@@ -47,9 +47,13 @@ func _init() -> void:
 	var missing_constraint := payload.duplicate(true)
 	missing_constraint["models"][0]["supported_constraints"] = ["root_path"]
 	_check(
-		Capabilities.parse_payload(missing_constraint)["code"] == "unsupported_model",
-		"missing constraint support is rejected",
+		Capabilities.parse_payload(missing_constraint)["ok"],
+		"partial advanced constraint support permits basic generation",
 	)
+	missing_constraint["models"][0].erase("supported_constraints")
+	_check(Capabilities.parse_payload(missing_constraint)["ok"], "absent optional constraints")
+	missing_constraint["models"][0]["supported_constraints"] = [12]
+	_check(not Capabilities.parse_payload(missing_constraint)["ok"], "malformed constraints rejected")
 
 	_check(Client._validate_loopback_url("http://127.0.0.1:8000")["ok"], "IPv4 loopback URL")
 	_check(Client._validate_loopback_url("http://localhost")["ok"], "localhost URL")

@@ -6,6 +6,8 @@ signal new_requested
 signal open_requested
 signal recent_requested
 signal switch_requested
+signal delete_recent_requested
+signal delete_active_requested
 
 var landing: VBoxContainer
 var active_bar: HBoxContainer
@@ -15,6 +17,10 @@ var recent: OptionButton
 var status: Label
 var active_label: Label
 var save_state: Label
+var delete_recent: Button
+var delete_active: Button
+var delete_dialog: ConfirmationDialog
+var switch_session: Button
 
 
 func _init() -> void:
@@ -71,13 +77,21 @@ func _build() -> void:
 	landing.add_child(recent_row)
 	recent = OptionButton.new()
 	recent.name = "RecentSessions"
+	recent.fit_to_longest_item = false
+	recent.clip_text = true
+	recent.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
 	recent.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	recent_row.add_child(recent)
 	var recent_button := Button.new()
 	recent_button.name = "OpenRecentSession"
-	recent_button.text = "Open Recent"
+	recent_button.text = "Open Selected"
 	recent_button.pressed.connect(func() -> void: recent_requested.emit())
 	recent_row.add_child(recent_button)
+	delete_recent = Button.new()
+	delete_recent.name = "DeleteSelectedSession"
+	delete_recent.text = "Delete…"
+	delete_recent.pressed.connect(func() -> void: delete_recent_requested.emit())
+	recent_row.add_child(delete_recent)
 	status = Label.new()
 	status.name = "SessionLandingStatus"
 	status.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
@@ -89,6 +103,8 @@ func _build() -> void:
 	add_child(active_bar)
 	active_label = Label.new()
 	active_label.name = "ActiveSessionLabel"
+	active_label.clip_text = true
+	active_label.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
 	active_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	active_bar.add_child(active_label)
 	save_state = Label.new()
@@ -96,7 +112,18 @@ func _build() -> void:
 	save_state.text = "Saved"
 	active_bar.add_child(save_state)
 	var switch_button := Button.new()
+	switch_session = switch_button
 	switch_button.name = "SwitchSession"
 	switch_button.text = "Sessions"
 	switch_button.pressed.connect(func() -> void: switch_requested.emit())
 	active_bar.add_child(switch_button)
+	delete_active = Button.new()
+	delete_active.name = "DeleteActiveSession"
+	delete_active.text = "Delete…"
+	delete_active.pressed.connect(func() -> void: delete_active_requested.emit())
+	active_bar.add_child(delete_active)
+	delete_dialog = ConfirmationDialog.new()
+	delete_dialog.name = "DeleteSessionConfirmation"
+	delete_dialog.title = "Delete session and archived drafts?"
+	delete_dialog.ok_button_text = "Delete Session"
+	add_child(delete_dialog)

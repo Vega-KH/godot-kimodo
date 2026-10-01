@@ -13,6 +13,7 @@ const ProjectPaths := preload("res://addons/kimodo_motion/domain/project_paths.g
 const GenerationTakePanel := preload("res://addons/kimodo_motion/ui/generation_take_panel.gd")
 const PreviewSavePanel := preload("res://addons/kimodo_motion/ui/preview_save_panel.gd")
 const SessionShell := preload("res://addons/kimodo_motion/ui/session_shell.gd")
+const SessionDeletion := preload("res://addons/kimodo_motion/domain/session_deletion_service.gd")
 const HistoryPanel := preload("res://addons/kimodo_motion/ui/history_panel.gd")
 const RigSetupPanel := preload("res://addons/kimodo_motion/ui/rig_setup_panel.gd")
 const RigProfile := preload("res://addons/kimodo_motion/retargeting/kimodo_rig_profile.gd")
@@ -52,6 +53,8 @@ var _session_recent: OptionButton
 var _session_status: Label
 var _session_active_label: Label
 var _session_save_state: Label
+var _session_shell: Control
+var _deletion_plan: Dictionary = {}
 var _recent_sessions: Array[Dictionary] = []
 var _workspace_start_index := 0
 var _workspace_default_visibility: Dictionary = {}
@@ -265,11 +268,16 @@ func _bind_preview_panel_controls() -> void:
 
 func _build_session_landing() -> void:
 	var shell := SessionShell.new()
+	_session_shell = shell
 	_content.add_child(shell)
 	shell.new_requested.connect(_on_new_session_pressed)
 	shell.open_requested.connect(_on_open_session_pressed)
 	shell.recent_requested.connect(_on_open_recent_session_pressed)
 	shell.switch_requested.connect(_on_switch_session_pressed)
+	shell.delete_recent_requested.connect(_on_delete_recent_session)
+	shell.delete_active_requested.connect(func() -> void: _prepare_session_deletion(_draft_path))
+	shell.delete_dialog.confirmed.connect(_confirm_session_deletion)
+	shell.delete_dialog.canceled.connect(func() -> void: _deletion_plan.clear())
 	_session_landing = shell.landing
 	_session_active_bar = shell.active_bar
 	_session_title_edit = shell.title_edit
@@ -278,6 +286,65 @@ func _build_session_landing() -> void:
 	_session_status = shell.status
 	_session_active_label = shell.active_label
 	_session_save_state = shell.save_state
+	for result in SessionDeletion.recover_pending():
+		if not result["ok"] or result.get("cleanup_pending", false):
+			_session_status.text = result["message"]
+
+
+func _session_operation_blocked() -> bool:
+	return _generation_client != null and _generation_client.state == GenerationClient.GenerationState.GENERATING
+
+
+func _on_delete_recent_session() -> void:
+	var index := _session_recent.selected
+	if index >= 0 and index < _recent_sessions.size():
+		_prepare_session_deletion(_recent_sessions[index]["path"])
+
+
+func _prepare_session_deletion(path: String) -> void:
+	if _session_operation_blocked():
+		return
+	if path == _draft_path and not _session_controller.flush()["ok"]:
+		return
+	_deletion_plan = SessionDeletion.preflight(path)
+	if not _deletion_plan["ok"]:
+		_session_status.text = _deletion_plan["message"]
+		if _draft != null:
+			_preview_panel.show_save_error(_deletion_plan["message"])
+		return
+	var warning := (
+		"Delete ‘%s’ and its %d archived animation drafts?\n\n"
+		+ "This removes this session and its managed source data. Saved/accepted animation libraries, saved previews, character models and shared rig profiles will be kept.\n\n"
+		+ "This deletion cannot be undone."
+	) % [_deletion_plan["title"], _deletion_plan["draft_count"]]
+	if _deletion_plan["missing_count"] > 0:
+		warning += "\n\n%d additional draft archive files are already missing; their history entries will also be removed." % _deletion_plan["missing_count"]
+	_session_shell.delete_dialog.dialog_text = warning
+	_session_shell.delete_dialog.popup_centered(Vector2i(520, 320))
+	_session_shell.delete_dialog.get_cancel_button().grab_focus()
+
+
+func _confirm_session_deletion() -> void:
+	if _session_operation_blocked():
+		_deletion_plan.clear()
+		return
+	var result := SessionDeletion.execute(_deletion_plan)
+	if result["ok"] and _draft != null and result["session_id"] == _draft.session_id:
+		_session_controller.detach_deleted()
+		_draft = null
+		_draft_path = ""
+		_preview_panel.save_dialog.hide()
+		_preview_panel.accept_dialog.hide()
+		_preview_panel.replace_dialog.hide()
+		_preview_panel.set_accept_destination("")
+		_clear_generated_previews()
+		_set_workspace_visible(false)
+		_update_generation_availability()
+	_session_status.text = result["message"]
+	if not result["ok"] and _draft != null:
+		_preview_panel.show_save_error(result["message"])
+	_deletion_plan.clear()
+	_refresh_recent_sessions()
 
 
 func _set_workspace_visible(visible: bool) -> void:
@@ -299,17 +366,21 @@ func _capture_workspace_visibility() -> void:
 
 func _refresh_recent_sessions() -> void:
 	_recent_sessions = SessionStore.list_sessions()
+	_session_shell.delete_recent.disabled = _recent_sessions.is_empty() or _session_operation_blocked()
 	_session_recent.clear()
 	if _recent_sessions.is_empty():
-		_session_recent.add_item("No recent sessions")
+		_session_recent.add_item("No saved sessions")
 		_session_recent.disabled = true
 		return
 	_session_recent.disabled = false
 	for entry in _recent_sessions:
 		_session_recent.add_item("%s — %s" % [entry["title"], entry["updated_at_utc"]])
+		_session_recent.set_item_tooltip(_session_recent.item_count - 1, entry["path"])
 
 
 func _on_new_session_pressed() -> void:
+	if _session_operation_blocked():
+		return
 	var result: Dictionary = _session_controller.create(_session_title_edit.text)
 	if not result["ok"]:
 		_set_session_landing_error(result["message"])
@@ -340,6 +411,8 @@ func _on_open_recent_session_pressed() -> void:
 
 
 func _open_session_path(path: String) -> void:
+	if _session_operation_blocked():
+		return
 	var result: Dictionary = _session_controller.open(path)
 	if not result["ok"]:
 		_set_session_landing_error(result["message"])
@@ -384,6 +457,8 @@ func _activate_session(session: Resource, path: String, load_result: Dictionary)
 
 
 func _on_switch_session_pressed() -> void:
+	if _session_operation_blocked():
+		return
 	if not _flush_session():
 		return
 	var result: Dictionary = _session_controller.close()
@@ -714,15 +789,20 @@ func _update_generation_availability() -> void:
 	var connected: bool = _client != null and _client.state == Client.ConnectionState.READY
 	var ready_to_generate := connected and _draft != null and _character_target != null and _rig_profile != null
 	_generate_button.disabled = not ready_to_generate and not generating
-	_generate_button.text = "Cancel Generation" if generating else (
+	_generate_button.text = "Stop waiting" if generating else (
 		"Generate Again" if _preview != null and _preview.has_motion() else "Generate"
 	)
+	_generate_button.tooltip_text = "Stop waiting for this response. Backend inference may continue; no returned take will be archived." if generating else ""
 	_generation_panel.set_intent_editable(not generating)
 	_action_button.disabled = generating
 	_update_save_availability()
 
 
 func _on_motion_ready() -> void:
+	if _draft == null:
+		for motion in _generation_client.take_latest_motions():
+			motion.scene.free()
+		return
 	_release_and_free_take_motions()
 	var received_motions: Array[RefCounted] = _generation_client.take_latest_motions()
 	if received_motions.is_empty():
@@ -1159,7 +1239,7 @@ func _on_save_path_selected(kind: int, requested_path: String) -> void:
 	var extension := (
 		"tscn" if kind == PreviewSavePanel.SaveKind.CHARACTER_PREVIEW else "res"
 	)
-	var validation := ProjectPaths.validate_file(requested_path, extension)
+	var validation := ProjectPaths.validate_output_file(requested_path, extension)
 	if not validation["ok"]:
 		_set_save_error(validation["message"])
 		return
@@ -1340,10 +1420,19 @@ func _on_accept_requested(
 
 
 func _on_acceptance_state_changed(state: String, result: Dictionary) -> void:
+	if result.get("detached_session", false) or _draft == null or result.get("session_id", "") != _draft.session_id:
+		_refresh_saved_resource(result.get("path", ""))
+		return
 	if not result["ok"]:
 		_preview_panel.show_accept_error(result["message"])
 		return
-	_session_controller.dirty = false
+	var saved := ResourceLoader.load(_draft_path, "Resource", ResourceLoader.CACHE_MODE_IGNORE)
+	if saved is SessionStore.Session and saved.session_id == _draft.session_id:
+		_draft.acceptances = saved.acceptances.duplicate(true)
+		_draft.animation_destination = saved.animation_destination
+		_draft.updated_at_utc = saved.updated_at_utc
+	# Do not clear dirty: intent edits made after Accept can still be awaiting
+	# autosave when Undo is invoked.
 	if state == "accepted":
 		_preview_panel.set_accept_destination(result["path"])
 		_preview_panel.show_accept_result(
@@ -1369,6 +1458,13 @@ func _update_save_availability() -> void:
 		_generation_client != null
 		and _generation_client.state == GenerationClient.GenerationState.GENERATING
 	)
+	if _session_shell != null:
+		_session_shell.delete_active.disabled = generating
+		_session_shell.delete_recent.disabled = generating or _recent_sessions.is_empty()
+		_session_shell.switch_session.disabled = generating
+		var busy_hint := "Finish generation or Stop waiting before switching/deleting a session." if generating else ""
+		_session_shell.switch_session.tooltip_text = busy_hint
+		_session_shell.delete_active.tooltip_text = busy_hint
 	_preview_panel.set_save_availability(
 		_preview_panel.has_source(),
 		_preview_panel.has_humanoid(),

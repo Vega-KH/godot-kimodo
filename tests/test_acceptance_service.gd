@@ -109,6 +109,15 @@ func _run() -> void:
 	_check(SessionStore.validate_session(session).is_empty(), "accepted session remains valid")
 	var accepted_bytes := FileAccess.get_file_as_bytes(new_path)
 	var accepted_record: Dictionary = prepared["record"]
+	var undo_reopened := SessionStore.open(session_path)
+	_check(undo_reopened["ok"], "accepted session reopens independently of retained transaction")
+	var newer: Resource = undo_reopened["session"]
+	newer.notes = "Newer edits must survive an old acceptance undo"
+	newer.prompt = "A new prompt after reopening"
+	newer.artifacts["later_export"] = {"path": new_path}
+	SessionStore.save(newer, session_path)
+	var later_archive := Archive.archive_generation(newer, session_path, "{}", capabilities_json, FileAccess.get_file_as_bytes(MOTION_FIXTURE), capabilities_result["capabilities"], [source_motion])
+	_check(later_archive["ok"], "new generation added after session reopen")
 
 	transaction.apply_before()
 	_check(transaction.last_result["ok"], "new-library acceptance undoes")
@@ -121,6 +130,9 @@ func _run() -> void:
 		"undo removes the accepted animation and leaves an empty reusable library",
 	)
 	_check(session.acceptances.is_empty(), "undo restores acceptance provenance absence")
+	var after_old_undo := SessionStore.open(session_path)
+	_check(after_old_undo["session"].notes == newer.notes and after_old_undo["session"].prompt == newer.prompt and after_old_undo["session"].artifacts.has("later_export"), "old acceptance undo preserves newer saved session fields")
+	_check(after_old_undo["session"].generation_records.size() == 2, "old acceptance undo preserves newer generation history")
 	transaction.apply_after()
 	_check(transaction.last_result["ok"], "new-library acceptance redoes")
 	_check(FileAccess.get_file_as_bytes(new_path) == accepted_bytes, "redo restores identical library bytes")

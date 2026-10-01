@@ -23,6 +23,7 @@ var take_selection: OptionButton
 var source_preview: Control
 var humanoid_preview: Control
 var character_preview: Control
+var preview_frame: AspectRatioContainer
 var preview_selection: OptionButton
 var play_button: Button
 var loop_toggle: CheckButton
@@ -277,21 +278,35 @@ func _build() -> void:
 	take_selection.item_selected.connect(_on_take_selected)
 	take_row.add_child(take_selection)
 
+	preview_frame = AspectRatioContainer.new()
+	preview_frame.name = "SquarePreview"
+	preview_frame.ratio = 1.0
+	preview_frame.stretch_mode = AspectRatioContainer.STRETCH_WIDTH_CONTROLS_HEIGHT
+	preview_frame.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	preview_frame.resized.connect(_resize_preview_frame)
+	preview_frame.visible = false
+	add_child(preview_frame)
 	source_preview = Preview.new()
 	source_preview.configure("MotionPreview", Color(0.1, 0.85, 1.0))
 	source_preview.camera_view_changed.connect(_on_camera_view_changed)
 	source_preview.visible = false
-	add_child(source_preview)
+	preview_frame.add_child(source_preview)
 	humanoid_preview = Preview.new()
 	humanoid_preview.configure("HumanoidPreview", Color(1.0, 0.25, 0.72))
 	humanoid_preview.camera_view_changed.connect(_on_camera_view_changed)
 	humanoid_preview.visible = false
-	add_child(humanoid_preview)
+	preview_frame.add_child(humanoid_preview)
 	character_preview = Preview.new()
 	character_preview.configure("CharacterPreview", Color.WHITE, false)
 	character_preview.camera_view_changed.connect(_on_camera_view_changed)
 	character_preview.visible = false
-	add_child(character_preview)
+	preview_frame.add_child(character_preview)
+	for preview in [source_preview, humanoid_preview, character_preview]:
+		preview.visibility_changed.connect(func() -> void:
+			preview_frame.visible = (
+				source_preview.visible or humanoid_preview.visible or character_preview.visible
+			)
+		)
 
 	preview_selection = OptionButton.new()
 	preview_selection.name = "PreviewSelection"
@@ -348,6 +363,8 @@ func _build() -> void:
 	camera_row.add_child(reset_camera_button)
 	var camera_hint := Label.new()
 	camera_hint.text = "Drag to orbit · Wheel to zoom"
+	camera_hint.clip_text = true
+	camera_hint.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
 	camera_hint.modulate = Color(0.7, 0.72, 0.76)
 	camera_hint.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	camera_row.add_child(camera_hint)
@@ -451,6 +468,14 @@ func _build() -> void:
 	add_child(replace_dialog)
 
 
+func _resize_preview_frame() -> void:
+	# AspectRatioContainer sizes its children, but its VBox parent still needs
+	# the width-derived minimum height to reserve space for a wide viewport.
+	var height := preview_frame.size.x
+	if absf(preview_frame.custom_minimum_size.y - height) > 0.5:
+		preview_frame.set_deferred("custom_minimum_size", Vector2(0.0, height))
+
+
 func _on_take_selected(index: int) -> void:
 	if index == take_set.active_index:
 		return
@@ -528,6 +553,7 @@ func _update_save_button() -> void:
 		return
 	var index := save_kind.selected
 	save_button.disabled = index < 0 or save_kind.is_item_disabled(index)
+	save_button.tooltip_text = "Generate or load a History take with this output ready. Saving is disabled during generation." if save_button.disabled else "Save the selected preview take to a new project file."
 
 
 func _on_save_kind_selected(_index: int) -> void:
@@ -604,3 +630,13 @@ func _update_accept_button() -> void:
 		or accept_destination.is_empty()
 		or accept_name.text.strip_edges().is_empty()
 	)
+	if _accept_generating:
+		accept_button.tooltip_text = "Finish generation or Stop waiting before accepting an animation."
+	elif not _accept_character_ready:
+		accept_button.tooltip_text = "Preview a compatible character take first."
+	elif accept_destination.is_empty():
+		accept_button.tooltip_text = "Choose an existing or new production animation library."
+	elif accept_name.text.strip_edges().is_empty():
+		accept_button.tooltip_text = "Enter an animation name for the production library."
+	else:
+		accept_button.tooltip_text = "Add the selected character animation; name collisions require explicit Replace."

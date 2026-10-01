@@ -122,5 +122,15 @@ func close() -> Dictionary:
 	return {"ok": true}
 
 
+func detach_deleted() -> void:
+	# Deliberately do not flush a resource that no longer has an owner on disk.
+	if _save_timer != null:
+		_save_timer.stop()
+	session = null
+	path = ""
+	dirty = false
+	session_changed.emit(null, "")
+
+
 func _exit_tree() -> void:
 	flush()

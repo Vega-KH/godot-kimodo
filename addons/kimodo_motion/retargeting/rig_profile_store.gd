@@ -6,7 +6,7 @@ const ProjectPaths := preload("res://addons/kimodo_motion/domain/project_paths.g
 const DEFAULT_DIRECTORY := "res://animations/kimodo/rig_profiles"
 
 static func save(profile: Resource, path: String) -> Dictionary:
-	var validation := ProjectPaths.validate_file(path, "tres")
+	var validation := ProjectPaths.validate_output_file(path, "tres")
 	if not validation["ok"]:
 		return validation
 	var directory := ProjectPaths.ensure_directory(validation["path"].get_base_dir())

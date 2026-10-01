@@ -3,18 +3,27 @@
 An open-source Godot 4.7 editor extension for authoring humanoid animation
 with the local `kimodo-godot-server` backend.
 
-The project has a working engineering vertical slice. Its editor dock connects
+The Stage 1 basic workflow is complete and user-tested. Its editor dock connects
 asynchronously to a loopback MMCP backend, submits typed text-to-motion
 requests for one or two takes, validates every SOMA-77 glTF animation and its
 matching metadata, and previews the selected result. Motion
 can be saved as native SOMA-77 data, retargeted through a deterministic Godot
-humanoid fixture, previewed on a selected exact-name compatible character, and
-saved on the repository's skinned Auto-Rig Pro acceptance character.
+humanoid intermediate, and previewed/exported on a selected compatible character
+using a reviewed rig profile. Matching assists setup; manual mapping remains
+available for custom imported rigs.
 
-The intended basic product workflow is not complete yet: durable take history,
-full-skeleton retargeting, rig-aware export, and explicit undoable acceptance
-into a production animation library now work. General rig setup and final
-workflow hardening remain before the basic stage is complete.
+Durable take history, full-skeleton retargeting, rig-aware export, undoable
+production-library acceptance and confirmed session deletion are implemented.
+All final manual tests passed on 2026-10-01; advanced constraint authoring is
+the next stage. See the concise [installation and basic workflow guide](addons/kimodo_motion/README.md).
+
+For an add-on-only distribution, run `scripts/package-addon.ps1 -Destination
+<new folder>`. The allowlist copies only `addons/kimodo_motion` (including its
+guide) and LICENSE. It excludes repository tests, private characters, user
+animations, credentials, weights, environments and development artifacts.
+`scripts/create-clean-test-project.ps1 -Destination <new folder> -Character
+<private GLB>` adds a test driver and one local character for installation
+validation; that test project is not a redistributable package.
 
 ## Reference environment
 
@@ -74,7 +83,7 @@ expandable without blocking the editor.
 Once connected, choose a compatible character, enter a prompt, and choose a
 frame count, denoising-step count, seed, and one or two takes, then press
 **Generate**. Two is the current tested maximum even though the dependency
-advertises a larger protocol ceiling. The request runs asynchronously. Cancel stops
+advertises a larger protocol ceiling. The request runs asynchronously. **Stop waiting** stops
 the Godot client from waiting for that response; the current direct MMCP server
 does not yet prove that active model inference stopped. The default 100
 denoising steps favors normal-quality previews; lower values trade quality for
@@ -109,7 +118,7 @@ the user confirms deletion; deletion retains a truthful tombstone and never
 removes a separately saved animation or Character Preview. Missing or corrupt
 archive files are reported rather than regenerated or hidden.
 
-The preview follows planar root motion by default so locomotion remains in
+The approximately square preview follows available dock width and planar root motion by default so locomotion remains in
 frame. Left-drag directly on the preview to orbit, use the mouse wheel to zoom,
 toggle **Follow Root** to keep a fixed world view, and press **Reset View** to
 restore the default angle and distance. Camera angle and zoom stay synchronized

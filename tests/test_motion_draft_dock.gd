@@ -7,6 +7,8 @@ const MotionResponse := preload("res://addons/kimodo_motion/transport/mmcp_motio
 const Dock := preload("res://addons/kimodo_motion/ui/ai_motion_dock.gd")
 const PreviewPanel := preload("res://addons/kimodo_motion/ui/preview_save_panel.gd")
 const Archive := preload("res://addons/kimodo_motion/domain/take_archive_service.gd")
+const Lifecycle := preload("res://addons/kimodo_motion/domain/session_lifecycle.gd")
+const Store := preload("res://addons/kimodo_motion/domain/motion_session_store.gd")
 const JENNY := preload("res://tests/characters/fixtures/Jenny03.glb")
 const JENNY_PATH := "res://tests/characters/fixtures/Jenny03.glb"
 const CAPABILITIES_FIXTURE := "res://tests/fixtures/soma77_capabilities.json"
@@ -117,7 +119,10 @@ func _run() -> void:
 	dock._preview_panel.accept_button.emit_signal("pressed")
 	_check(FileAccess.file_exists(accepted_library), "selected take accepts into a production library")
 	_check(dock._draft.acceptances.size() == 1, "session records acceptance separately from Save")
+	prompt.text = "Unsaved intent must survive acceptance Undo"
+	prompt.emit_signal("text_changed")
 	dock._fallback_undo_redo.undo()
+	_check(dock._session_controller.dirty, "Undo does not discard pending autosave of intent")
 	_check(FileAccess.file_exists(accepted_library), "Godot Undo retains the new library container")
 	var undone_library := ResourceLoader.load(
 		accepted_library, "AnimationLibrary", ResourceLoader.CACHE_MODE_IGNORE
@@ -130,6 +135,8 @@ func _run() -> void:
 	dock._fallback_undo_redo.redo()
 	_check(FileAccess.file_exists(accepted_library), "Godot Redo restores accepted library")
 	_check(dock._draft.acceptances.size() == 1, "Godot Redo restores acceptance provenance")
+	await create_timer(0.6).timeout
+	_check(Store.open(dock._draft_path)["session"].prompt == prompt.text, "pending intent reaches disk after Undo/Redo")
 
 	var session_path: String = dock._draft_path
 	(dock.find_child("SwitchSession", true, false) as Button).emit_signal("pressed")
@@ -168,6 +175,56 @@ func _run() -> void:
 	_check(FileAccess.file_exists(saved_library), "confirmed source deletion preserves explicit saved artifact")
 	_check(FileAccess.file_exists(accepted_library), "confirmed source deletion preserves accepted animation")
 	_check(FileAccess.get_sha256(JENNY_PATH) == fixture_hash, "offline reopen leaves Jenny unchanged")
+	var session_id: String = dock._draft.session_id
+	await create_timer(0.6).timeout
+	var deletion_hash := FileAccess.get_sha256(session_path)
+	dock._prepare_session_deletion(session_path)
+	_check(dock._deletion_plan.get("draft_count") == 1, "session warning excludes previously deleted take")
+	_check(dock._session_shell.delete_dialog.dialog_text.contains("Saved/accepted animation libraries"), "warning explains independently saved output preservation")
+	dock._session_shell.delete_dialog.emit_signal("canceled")
+	dock._session_shell.delete_dialog.hide()
+	_check(FileAccess.get_sha256(session_path) == deletion_hash, "cancel leaves active session unchanged")
+	generation._set_state(GenerationClient.GenerationState.GENERATING, "Waiting")
+	_check(dock._session_shell.delete_active.disabled, "active delete disabled during generation")
+	dock._prepare_session_deletion(session_path)
+	_check(dock._deletion_plan.is_empty(), "programmatic deletion also blocked during generation")
+	generation.cancel_generation()
+	dock._prepare_session_deletion(session_path)
+	dock._session_shell.delete_dialog.hide()
+	dock._confirm_session_deletion()
+	await create_timer(0.6).timeout
+	_check(dock._draft == null and landing.visible and not generate.is_visible_in_tree(), "active deletion returns safely to gated chooser")
+	_check(not FileAccess.file_exists(session_path), "deleted session cannot autosave back")
+	var late := MotionResponse.parse(response_bytes, 30, 30.0, client.capabilities.skeleton_payload)
+	generation._latest_motions.assign(late["motions"])
+	dock._on_motion_ready()
+	_check(dock._draft == null and not FileAccess.file_exists(session_path), "late motion callback cannot resurrect a deleted session")
+	dock._fallback_undo_redo.undo()
+	dock._fallback_undo_redo.redo()
+	_check(not FileAccess.file_exists(session_path), "real dock acceptance Undo/Redo cannot resurrect deleted session")
+	_check(FileAccess.file_exists(saved_library) and FileAccess.file_exists(accepted_library), "session deletion preserves Save and Accept outputs")
+	_cleanup_directories.append(Lifecycle.receipt_path(session_id).get_base_dir())
+	var extra_sessions: Array[String] = []
+	for index in 10:
+		var created := Store.save_new(Store.create_session("Goal 21 chooser %d" % index))
+		extra_sessions.append(created["path"])
+		_cleanup_paths.append(created["path"])
+	dock._refresh_recent_sessions()
+	_check(dock._recent_sessions.size() >= 10, "chooser includes old sessions beyond eight-entry limit")
+	var selected_index := -1
+	for index in dock._recent_sessions.size():
+		if dock._recent_sessions[index]["path"] == extra_sessions[0]:
+			selected_index = index
+	if selected_index >= 0:
+		dock._open_session_path(extra_sessions[1])
+		dock._session_recent.select(selected_index)
+		dock._on_delete_recent_session()
+		var inactive_id: String = dock._deletion_plan.get("session_id", "")
+		dock._session_shell.delete_dialog.hide()
+		dock._confirm_session_deletion()
+		_check(not FileAccess.file_exists(extra_sessions[0]) and FileAccess.file_exists(extra_sessions[1]), "inactive deletion preserves unrelated session")
+		_check(dock._draft_path == extra_sessions[1] and dock._draft != null, "inactive deletion preserves active session/controller")
+		_cleanup_directories.append(Lifecycle.receipt_path(inactive_id).get_base_dir())
 
 	dock.queue_free()
 	client.queue_free()

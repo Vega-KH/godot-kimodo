@@ -76,7 +76,7 @@ static func save_motion(
 		return {}
 	var source_animation := source_player.get_animation(ANIMATION_NAME)
 
-	var directory_result := ProjectPaths.ensure_directory(output_directory)
+	var directory_result := ProjectPaths.ensure_output_directory(output_directory)
 	if not directory_result["ok"]:
 		push_error(directory_result["message"])
 		return {}
@@ -147,7 +147,7 @@ static func save_library(
 	if source_player == null or not source_player.has_animation(ANIMATION_NAME):
 		push_error("Cannot save humanoid animation without animation '%s'" % ANIMATION_NAME)
 		return {}
-	var directory_result := ProjectPaths.ensure_directory(output_directory)
+	var directory_result := ProjectPaths.ensure_output_directory(output_directory)
 	if not directory_result["ok"]:
 		push_error(directory_result["message"])
 		return {}

@@ -4,6 +4,7 @@ extends RefCounted
 
 const Session := preload("res://addons/kimodo_motion/domain/motion_session.gd")
 const SessionStore := preload("res://addons/kimodo_motion/domain/motion_session_store.gd")
+const Lifecycle := preload("res://addons/kimodo_motion/domain/session_lifecycle.gd")
 const ProjectPaths := preload("res://addons/kimodo_motion/domain/project_paths.gd")
 const RigCompatibility := preload("res://addons/kimodo_motion/retargeting/rig_compatibility.gd")
 const CharacterBaker := preload(
@@ -44,6 +45,7 @@ class AcceptanceTransaction extends RefCounted:
 		if last_result["ok"]:
 			applied = true
 			has_committed = true
+		last_result["session_id"] = session.session_id
 		state_changed.emit("accepted" if last_result["ok"] else "error", last_result)
 
 
@@ -57,6 +59,7 @@ class AcceptanceTransaction extends RefCounted:
 		)
 		if last_result["ok"]:
 			applied = false
+		last_result["session_id"] = session.session_id
 		state_changed.emit("undone" if last_result["ok"] else "error", last_result)
 
 
@@ -84,13 +87,36 @@ class AcceptanceTransaction extends RefCounted:
 		if test_options.get("fail_at", "") == "%s_after_library" % phase:
 			KimodoAcceptanceService._write_file_state(library_path, current_exists, current_bytes)
 			return _error("injected_failure", "Injected acceptance failure after library update.")
+		if Lifecycle.is_retired(session.session_id):
+			# Keep normal production-library undo/redo, but never resurrect deleted
+			# source/session data through the retained transaction resource.
+			KimodoAcceptanceService._refresh_library_cache(library_path, target_exists)
+			return {"ok": true, "phase": phase, "path": library_path,
+				"animation_name": animation_name, "acceptance_id": acceptance_id,
+				"created_destination": created_destination, "session_id": session.session_id,
+				"detached_session": true}
+		# A retained Undo transaction may outlive a session close/reopen. Load
+		# the latest saved resource so unrelated newer intent/history/artifacts
+		# are never replaced by the old in-memory session snapshot.
+		var readable := FileAccess.open(session_path, FileAccess.READ)
+		if readable == null:
+			KimodoAcceptanceService._write_file_state(library_path, current_exists, current_bytes)
+			return _error("changed_session", "The acceptance's session is missing or locked. Library changes were rolled back.")
+		readable.close()
+		var latest := ResourceLoader.load(session_path, "Resource", ResourceLoader.CACHE_MODE_IGNORE)
+		if not latest is Session or latest.session_id != session.session_id or not SessionStore.validate_session(latest).is_empty():
+			KimodoAcceptanceService._write_file_state(library_path, current_exists, current_bytes)
+			return _error("changed_session", "The acceptance's session is missing, changed or unreadable. Library changes were rolled back.")
+		latest.acceptances = target_acceptances.duplicate(true)
+		latest.animation_destination = target_destination
+		latest.updated_at_utc = Session.utc_now()
 		session.acceptances = target_acceptances.duplicate(true)
 		session.animation_destination = target_destination
-		session.updated_at_utc = Session.utc_now()
+		session.updated_at_utc = latest.updated_at_utc
 		var save_result: Dictionary = (
 			_error("injected_failure", "Injected acceptance session-save failure.")
 			if test_options.get("fail_at", "") == "%s_session" % phase
-			else KimodoAcceptanceService._atomic_save_resource(session, session_path)
+			else KimodoAcceptanceService._atomic_save_resource(latest, session_path)
 		)
 		if not save_result["ok"]:
 			session.acceptances = current_acceptances
@@ -106,6 +132,7 @@ class AcceptanceTransaction extends RefCounted:
 			"animation_name": animation_name,
 			"acceptance_id": acceptance_id,
 			"created_destination": created_destination,
+			"session_id": session.session_id,
 		}
 
 
@@ -130,6 +157,8 @@ static func prepare(
 ) -> Dictionary:
 	if session == null or not session is Session or session_path.is_empty():
 		return _error("missing_session", "Open a current Kimodo session before accepting.")
+	if Lifecycle.is_retired(session.session_id):
+		return _error("deleted_session", "This session has been deleted or is awaiting recovery.")
 	if character_root == null or target_scene == null:
 		return _error("missing_target", "Select and preview a compatible character first.")
 	if session.selected_take_id.is_empty():
@@ -144,7 +173,7 @@ static func prepare(
 			"missing_take",
 			"The selected take's automatic source archive is no longer available.",
 		)
-	var path_result := ProjectPaths.validate_file(destination_path, "res")
+	var path_result := ProjectPaths.validate_output_file(destination_path, "res")
 	if not path_result["ok"]:
 		return path_result
 	if String(path_result["path"]).begins_with("res://.godot/"):

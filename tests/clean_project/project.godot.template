@@ -1,0 +1,14 @@
+config_version=5
+
+[application]
+config/name="Kimodo Stage 1 Clean Install Test"
+
+[display]
+window/size/viewport_width=480
+window/size/viewport_height=1100
+
+[editor_plugins]
+enabled=PackedStringArray("res://addons/kimodo_motion/plugin.cfg")
+
+[rendering]
+renderer/rendering_method="gl_compatibility"

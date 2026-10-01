@@ -6,6 +6,7 @@ const Session := preload("res://addons/kimodo_motion/domain/motion_session.gd")
 const MotionDraft := preload("res://addons/kimodo_motion/domain/motion_draft.gd")
 const ProjectPaths := preload("res://addons/kimodo_motion/domain/project_paths.gd")
 const TakeArchive := preload("res://addons/kimodo_motion/domain/take_archive_service.gd")
+const Lifecycle := preload("res://addons/kimodo_motion/domain/session_lifecycle.gd")
 const DEFAULT_DIRECTORY := "res://animations/kimodo/sessions"
 
 
@@ -105,7 +106,9 @@ static func save_as(session: Resource, directory: String, requested_stem: String
 
 
 static func save(session: Resource, path: String) -> Dictionary:
-	var validation := ProjectPaths.validate_file(path, "tres")
+	if session is Session and Lifecycle.is_retired(session.session_id):
+		return _error("deleted_session", "This session was deleted or is awaiting deletion recovery. Start a new session instead.")
+	var validation := ProjectPaths.validate_output_file(path, "tres")
 	if not validation["ok"]:
 		return validation
 	var parent_result := ProjectPaths.ensure_directory(validation["path"].get_base_dir())
@@ -136,6 +139,8 @@ static func open(path: String) -> Dictionary:
 		)
 	if not loaded is Session:
 		return _error("invalid_session", "The selected resource is not a Kimodo session or draft.")
+	if Lifecycle.is_retired(loaded.session_id):
+		return _error("deleted_session", "This session has been deleted or is awaiting deletion recovery.")
 	var session_error := validate_session(loaded)
 	if not session_error.is_empty():
 		return _error("invalid_session", session_error)
@@ -146,7 +151,7 @@ static func open(path: String) -> Dictionary:
 	return _load_result(loaded, validation["path"], int(recovery["recovered"]))
 
 
-static func list_sessions(limit := 8) -> Array[Dictionary]:
+static func list_sessions(limit := 0) -> Array[Dictionary]:
 	var result: Array[Dictionary] = []
 	var directory_result := ProjectPaths.validate_directory(DEFAULT_DIRECTORY)
 	if not directory_result["ok"] or not DirAccess.dir_exists_absolute(directory_result["absolute_path"]):
@@ -159,12 +164,12 @@ static func list_sessions(limit := 8) -> Array[Dictionary]:
 			continue
 		var path: String = directory_result["path"].path_join(filename)
 		var loaded := ResourceLoader.load(path, "KimodoSession", ResourceLoader.CACHE_MODE_IGNORE)
-		if loaded is Session and validate_session(loaded).is_empty():
+		if loaded is Session and validate_session(loaded).is_empty() and not Lifecycle.is_retired(loaded.session_id):
 			result.append({"path": path, "title": loaded.title, "updated_at_utc": loaded.updated_at_utc})
 	result.sort_custom(func(a: Dictionary, b: Dictionary) -> bool:
 		return String(a["updated_at_utc"]) > String(b["updated_at_utc"])
 	)
-	return result.slice(0, mini(limit, result.size()))
+	return result if limit <= 0 else result.slice(0, mini(limit, result.size()))
 
 
 static func validate_session(session: Resource) -> String:

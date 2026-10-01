@@ -10,10 +10,42 @@ static func validate_file(path: String, required_extension: String = "") -> Dict
 	return _validate(path, required_extension, false)
 
 
+static func validate_output_file(path: String, required_extension := "") -> Dictionary:
+	var result := validate_file(path, required_extension)
+	if not result["ok"]:
+		return result
+	var normalized: String = result["path"].to_lower()
+	for reserved in ["res://animations/kimodo/session_data/", "res://animations/kimodo/session_deletions/"]:
+		if normalized.begins_with(reserved):
+			return _error("reserved_storage", "Save exports and production libraries outside Kimodo's managed session storage.")
+	return validate_unlinked(result["path"])
+
+
+static func validate_unlinked(path: String) -> Dictionary:
+	# Used for both files and directories. Godot may localize an existing
+	# directory with a trailing slash; do not apply file-only validation here.
+	var result := _validate(path, "", true)
+	if not result["ok"]:
+		return result
+	var current := ProjectSettings.globalize_path("res://").simplify_path()
+	for part in String(result["path"]).trim_prefix("res://").split("/", false):
+		var parent := DirAccess.open(current)
+		if parent == null:
+			# A missing ancestor cannot currently hide a link.
+			break
+		if parent.is_link(part):
+			return _error("linked_path", "Session deletion cannot follow symbolic links or directory junctions. Move the session storage to an ordinary project directory.", current.path_join(part))
+		current = current.path_join(part)
+	return result
+
+
 static func ensure_directory(path: String) -> Dictionary:
 	var validation := validate_directory(path)
 	if not validation["ok"]:
 		return validation
+	var unlinked := validate_unlinked(path)
+	if not unlinked["ok"]:
+		return unlinked
 	var error := DirAccess.make_dir_recursive_absolute(validation["absolute_path"])
 	if error != OK:
 		return _error(
@@ -22,6 +54,11 @@ static func ensure_directory(path: String) -> Dictionary:
 			"DirAccess.make_dir_recursive_absolute returned %d" % error,
 		)
 	return validation
+
+
+static func ensure_output_directory(path: String) -> Dictionary:
+	var validation := validate_output_file(path.path_join("kimodo_output.res"), "res")
+	return ensure_directory(path) if validation["ok"] else validation
 
 
 static func _validate(path: String, required_extension: String, directory: bool) -> Dictionary:

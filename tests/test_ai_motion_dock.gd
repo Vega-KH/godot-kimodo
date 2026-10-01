@@ -99,7 +99,7 @@ func _run() -> void:
 		_check(not generate_action.disabled, "generation is enabled when session, target, and backend are ready")
 
 		generation._set_state(GenerationClient.GenerationState.GENERATING, "Generating for test…")
-		_check(generate_action.text == "Cancel Generation", "generation can be canceled")
+		_check(generate_action.text == "Stop waiting", "generation waiting can be stopped honestly")
 		_check(not prompt.editable, "generation inputs are stable in flight")
 		_check(not diffusion_steps.editable, "denoising steps are stable in flight")
 		_check(action.disabled, "connection cannot be refreshed during generation")

@@ -168,7 +168,7 @@ static func save_library(
 	if player == null or not player.has_animation(ANIMATION_NAME):
 		push_error("Cannot save a character animation without its Kimodo animation")
 		return {}
-	var directory_result := ProjectPaths.ensure_directory(output_directory)
+	var directory_result := ProjectPaths.ensure_output_directory(output_directory)
 	if not directory_result["ok"]:
 		push_error(directory_result["message"])
 		return {}
@@ -199,7 +199,7 @@ static func save_preview_scene(
 	if player == null or not player.has_animation(ANIMATION_NAME):
 		push_error("Cannot save a character scene without its Kimodo animation")
 		return {}
-	var directory_result := ProjectPaths.ensure_directory(output_directory)
+	var directory_result := ProjectPaths.ensure_output_directory(output_directory)
 	if not directory_result["ok"]:
 		push_error(directory_result["message"])
 		return {}

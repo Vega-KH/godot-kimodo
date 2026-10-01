@@ -4,6 +4,7 @@ extends RefCounted
 
 const ProjectPaths := preload("res://addons/kimodo_motion/domain/project_paths.gd")
 const Session := preload("res://addons/kimodo_motion/domain/motion_session.gd")
+const Lifecycle := preload("res://addons/kimodo_motion/domain/session_lifecycle.gd")
 const RigSnapshot := preload("res://addons/kimodo_motion/domain/soma77_rig_snapshot.gd")
 const Manifest := preload("res://addons/kimodo_motion/domain/generation_archive_manifest.gd")
 const NativeAnimationBaker := preload(
@@ -34,6 +35,8 @@ static func archive_generation(
 ) -> Dictionary:
 	if session == null or not session is Session or session.schema_version != Session.SCHEMA_VERSION:
 		return _error("invalid_session", "A current Kimodo session is required for archival.")
+	if Lifecycle.is_retired(session.session_id):
+		return _error("deleted_session", "The generation's session has been deleted or is awaiting recovery.")
 	if request_json.is_empty() or capabilities_json.is_empty() or response_bytes.is_empty():
 		return _error("missing_provenance", "Validated generation provenance is incomplete.")
 	if capabilities == null or motions.is_empty():
@@ -461,12 +464,14 @@ static func _recover_pending_deletions(session: Resource) -> void:
 			var path := String(take.get("archive_path", ""))
 			if path.is_empty() or FileAccess.file_exists(path):
 				continue
+			if not ProjectPaths.validate_unlinked(path)["ok"]:
+				continue
 			var directory := DirAccess.open(path.get_base_dir())
 			if directory == null:
 				continue
 			var prefix := path.get_file() + ".deleting-"
 			for filename in directory.get_files():
-				if not filename.begins_with(prefix):
+				if not filename.begins_with(prefix) or directory.is_link(filename):
 					continue
 				var pending_absolute := ProjectSettings.globalize_path(path.get_base_dir().path_join(filename))
 				if take.get("payload_status", "") == "deleted":
@@ -527,12 +532,18 @@ static func _cleanup_failed(
 
 
 static func _remove_tree(path: String) -> void:
+	if not ProjectPaths.validate_unlinked(path)["ok"]:
+		return
 	var validation := ProjectPaths.validate_directory(path)
 	if not validation["ok"] or not DirAccess.dir_exists_absolute(validation["absolute_path"]):
 		return
 	var directory := DirAccess.open(validation["path"])
 	if directory == null:
 		return
+	directory.include_hidden = true
+	for entry in directory.get_files() + directory.get_directories():
+		if directory.is_link(entry):
+			return
 	for filename in directory.get_files():
 		DirAccess.remove_absolute(validation["absolute_path"].path_join(filename))
 	for child in directory.get_directories():

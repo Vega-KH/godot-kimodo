@@ -15,7 +15,7 @@ static func save_library(
 	var library := create_library(imported_root)
 	if library == null:
 		return {}
-	var directory_result := ProjectPaths.ensure_directory(output_directory)
+	var directory_result := ProjectPaths.ensure_output_directory(output_directory)
 	if not directory_result["ok"]:
 		push_error(directory_result["message"])
 		return {}
@@ -74,7 +74,7 @@ static func bake(
 		push_error("Expected exactly one source animation, found %d" % source_names.size())
 		return {}
 
-	var directory_result := ProjectPaths.ensure_directory(output_directory)
+	var directory_result := ProjectPaths.ensure_output_directory(output_directory)
 	if not directory_result["ok"]:
 		push_error(directory_result["message"])
 		return {}
