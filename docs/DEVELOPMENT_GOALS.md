@@ -1,8 +1,8 @@
 # Development goals
 
-Reviewed: **2026-10-01**.
+Reviewed: **2026-10-11**.
 **Goals 0–21 complete. Stage 1 basic workflow accepted and pushed.**
-**Stage 2 begins with poses; implementation has not begun.**
+**Goal 22 complete and owner-accepted 2026-10-11. Goal 23 proposed, awaiting approval.**
 
 ## Read first
 
@@ -31,40 +31,70 @@ Deleting a session removes only verified session-owned source data. Stage 1's
 supported scope is Windows/Godot 4.7.2 with the pinned local CUDA backend, not
 universal rigs or a marketplace release.
 
-## Next starting point — Goal 22: pose foundation (direction only)
+## Goal 22 — completed 2026-10-11
 
-The user requested general Stage 2 direction rather than a detailed roadmap.
-The next session should turn this starting point into a small, detailed Goal 22
-proposal for review **before implementation**.
+The owner passed all manual tests: authoring, saving/reopening poses and building
+native animations by keying at the current frame. The separate Pose Library
+captures actual edited bone values, supports sparse/full channels and scene Undo,
+and follows the native AnimationPlayer clip/cursor with automatic clip refresh.
+Full-body SOMA-30 constraints, immutable provenance and offline reuse are verified.
+Numeric bone editing was removed at the user's request. Positional fitting remains
+deferred; orientation-transfer differences are disclosed before submission.
+See [Stage 2 completion](STAGE2_COMPLETION.md) and
+[Goal 22 acceptance](GOAL22_ACCEPTANCE.md) for evidence and supported limits.
 
-Intended first result: a reusable pose can be selected/captured, saved, reopened,
-previewed and positioned at a chosen frame without requiring another generation
-or changing existing artist animation. Whether initial capture comes from a
-selected History frame, manual posing, or both is a proposal-time UX decision.
+## Goal 23 — proposed: scene root-path and facing guides
 
-Investigate and settle:
+**Status: proposed for user review; not approved or started.**
 
-- A lightweight versioned pose resource: identity, joint representation,
-  source rig/reference signature, root placement policy and provenance.
-  Avoid serializing live nodes, meshes or target-specific paths as portable poses.
-- Distinguish reusable pose content from a session's timeline occurrence.
-  Native Godot animation keyframes may be an export/application form; they
-  need not be the only authoring representation.
-- Prove capture → disk → reload → apply round-trips on the canonical source,
-  then through existing profiles. Define how unsupported/extra joints are treated.
-- Audit backend `pose_keyframe` semantics against the **SOMA-30** constraint
-  subset, fill mode, local quaternions, heading and origin normalization.
-  SOMA-77 output does not imply all 77 joints are constrainable.
-- Separate pose-library playback from model conditioning. Selected-character
-  editing may require a deliberate inverse mapping/solver; existing forward
-  retargeting cannot simply be reversed when joints are omitted/collapsed.
-- Keep placement/Undo/Cancel, persistence ownership, session deletion and old
-  session compatibility explicit. Real useful Stage 1 archives now exist:
-  the earlier permission to discard test sessions is not a perpetual data policy.
+Artist result: place and rotate a root guide in the Godot scene, scrub the native
+AnimationPlayer timeline and record a waypoint at its current frame. Build a path
+and optional facing directions, combine them with existing full-body pose frames
+and a prompt, then generate and preview motion in the same scene placement.
+Keep Pose Library focused on reusable poses; guide authoring belongs in the
+motion/session tools.
 
-Do not start a full timeline editor, IK system, new retargeter, job service or
-large dock redesign merely to store a pose. Begin with the smallest useful,
-testable vertical slice and expand after approval.
+### Scope and ordered work
+
+1. Audit the pinned backend's root-path, heading and origin normalization behavior.
+   Prove scene-to-model and model-to-scene conversions with translated/rotated
+   characters and the reviewed profile's scale policy before building the UI.
+2. Provide an editor scene guide with Godot's position/rotation gizmos. Record,
+   replace and remove root waypoints at the native current frame; display frame
+   markers and the path in the viewport. Optional facing is explicit. A straight
+   segment joins waypoints for display; do not silently add dense constraints or
+   promise that generated motion follows a mathematical curve exactly.
+3. Store authored guides as session intent with Undo/Redo and offline reopening.
+   Changing character placement/profile or duration must invalidate or explicitly
+   rebase affected guides. Preserve Stage 1 sessions and Goal 22 pose assets.
+4. Translate reviewed waypoints to advertised `root_path` constraints. Detect
+   contradictory root/heading values where full-body pose frames also constrain
+   them; ask the artist to resolve conflicts rather than choose silently. Archive
+   exact authored guides, scene/model placement and the submitted request.
+5. Verify native-frame workflow, coordinate transforms, stale state, collision
+   behavior, save/reopen, combined pose/path generation, and Save/Accept/Undo.
+   Render the viewport/UI and complete a live generation plus owner manual gate.
+
+### Acceptance and boundaries
+
+- Record waypoints at native frames without calculating seconds or reselecting
+  the character. Moving/rotating the guide is visual and uses native gizmos.
+- A translated/rotated character's authored path converts correctly and the
+  generated preview returns to that placement. Conversions roundtrip within
+  1e-5 meters and 1e-4 radians; profile scale is applied exactly once.
+- A short curved walking route with optional facing and one/two full-body pose
+  constraints generates, archives and reopens offline. Report measured model
+  waypoint error and assess character placement visually; do not invent a model
+  accuracy guarantee before the first live result.
+- Preserve all current pose/native animation/session behaviors and require the
+  owner to approve the scene-guide workflow before committing the checkpoint.
+
+This goal adds root XZ travel and facing, not terrain navigation, collision
+avoidance or arbitrary root height control. Timed prompt ranges and hand/foot
+position/orientation targets are subsequent authoring slices. Positional fitting
+of character poses remains a separate design discussion: explicit effector
+constraints may address placement needs without first building a full inverse
+pose solver. Do not implement a solver or these later slices under Goal 23.
 
 ## General Stage 2 aims
 

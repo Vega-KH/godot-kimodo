@@ -196,6 +196,17 @@ static func validate_session(session: Resource) -> String:
 		var profile_result := ProjectPaths.validate_file(session.rig_profile_path, "tres")
 		if not profile_result["ok"]:
 			return "KimodoSession rig profile path is invalid."
+	var pose_options := preload("res://addons/kimodo_motion/domain/generation_options.gd").new()
+	pose_options.duration_frames = 900
+	for entry in session.pose_keyframes:
+		if not entry.get("constraint") is Dictionary or not entry.get("authored_channels") is Array or not entry.get("profile_mapping") is Dictionary:
+			return "KimodoSession pose authoring data is incomplete."
+		if entry.get("frame") != entry["constraint"].get("frame") or String(entry.get("target_signature", "")).length() != 64:
+			return "KimodoSession pose constraint identity is invalid."
+		pose_options.pose_constraints.append(entry["constraint"])
+	var pose_validation: Dictionary = pose_options.validate(30.0)
+	if not pose_validation["ok"]:
+		return "KimodoSession pose constraints are invalid: " + pose_validation["message"]
 	var take_ids := {}
 	for record in session.generation_records:
 		if not record is Dictionary or String(record.get("record_id", "")).is_empty():

@@ -1,7 +1,11 @@
 # Project development documents
 
-Stage 1 is complete (2026-10-01). Stage 2 starts with poses; no Stage 2
-implementation is approved yet.
+Stage 1 and Goal 22 are complete and owner-accepted (2026-10-11).
+The independent Pose Library follows the native AnimationPlayer clip/frame and
+converts complete authored poses to SOMA-30 constraints.
+See [Stage 2 completion](STAGE2_COMPLETION.md) and
+[Goal 22 acceptance](GOAL22_ACCEPTANCE.md). Goal 23 scene root-path/facing guides
+is proposed for review; positional fitting remains deferred.
 
 For a fresh development session, read these in order:
 

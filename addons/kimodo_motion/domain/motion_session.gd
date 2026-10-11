@@ -28,6 +28,7 @@ const SCHEMA_VERSION := 2
 @export var selected_take_id := ""
 @export var artifacts: Dictionary = {}
 @export var acceptances: Dictionary = {}
+@export var pose_keyframes: Array[Dictionary] = []
 
 
 func touch() -> void:

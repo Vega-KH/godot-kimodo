@@ -9,6 +9,7 @@ const Response := preload("res://addons/kimodo_motion/transport/mmcp_motion_resp
 const Paths := preload("res://addons/kimodo_motion/domain/project_paths.gd")
 const Controller := preload("res://addons/kimodo_motion/domain/motion_session_controller.gd")
 const Acceptance := preload("res://addons/kimodo_motion/domain/acceptance_service.gd")
+const PoseService := preload("res://addons/kimodo_motion/poses/pose_service.gd")
 const TEST_DIRECTORY := "res://tests/.goal21_deletion"
 
 var failures: Array[String] = []
@@ -113,6 +114,13 @@ func _run() -> void:
 	var output_path := TEST_DIRECTORY.path_join("saved.res")
 	ResourceSaver.save(AnimationLibrary.new(), output_path)
 	var output_hash := FileAccess.get_sha256(output_path)
+	var pose_skeleton := Skeleton3D.new()
+	pose_skeleton.add_bone("Finger")
+	pose_skeleton.set_bone_pose_rotation(0, Quaternion(Vector3.RIGHT, 0.4))
+	var pose_capture := PoseService.capture(pose_skeleton, "Independent finger pose", {"Finger": [Animation.TYPE_ROTATION_3D]})
+	var pose_path := TEST_DIRECTORY.path_join("pose-" + session.session_id + ".tres")
+	_check(PoseService.save_new(pose_capture["pose"], pose_path)["ok"], "independent pose saved before session deletion")
+	var pose_hash := FileAccess.get_sha256(pose_path)
 	session.artifacts["test"] = {"path": output_path}
 	Store.save(session, path)
 	var interrupted := Deletion.execute(Deletion.preflight(path), {"fail_at": "interrupt_staging"})
@@ -146,6 +154,10 @@ func _run() -> void:
 	Deletion.recover_pending()
 	_check(not DirAccess.dir_exists_absolute(root_path), "source tree removed")
 	_check(FileAccess.get_sha256(output_path) == output_hash, "explicit output remains byte-identical")
+	_check(FileAccess.get_sha256(pose_path) == pose_hash, "saved pose survives session deletion byte-identically")
+	var reopened_pose := PoseService.load_pose(pose_path)
+	_check(reopened_pose["ok"] and PoseService.apply(reopened_pose["pose"], pose_skeleton)["ok"], "independent pose reloads and applies after session deletion/recovery")
+	pose_skeleton.free()
 	var quarantine := Lifecycle.receipt_path(session.session_id).get_base_dir()
 	_check(not DirAccess.dir_exists_absolute(quarantine.path_join("data")), "restart purges committed staged data")
 	var unsafe := Deletion.preflight("res://tests/../tests/session.tres")

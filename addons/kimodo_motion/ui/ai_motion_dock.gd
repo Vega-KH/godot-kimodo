@@ -2,6 +2,8 @@
 class_name AiMotionDock
 extends VBoxContainer
 
+signal pose_keyframes_changed(entries: Array)
+
 const Client := preload("res://addons/kimodo_motion/transport/mmcp_capabilities_client.gd")
 const GenerationClient := preload("res://addons/kimodo_motion/transport/mmcp_generation_client.gd")
 const GenerationOptions := preload("res://addons/kimodo_motion/domain/generation_options.gd")
@@ -19,6 +21,8 @@ const RigSetupPanel := preload("res://addons/kimodo_motion/ui/rig_setup_panel.gd
 const RigProfile := preload("res://addons/kimodo_motion/retargeting/kimodo_rig_profile.gd")
 const RigMatcher := preload("res://addons/kimodo_motion/retargeting/rig_candidate_matcher.gd")
 const RigProfileStore := preload("res://addons/kimodo_motion/retargeting/rig_profile_store.gd")
+const PoseConverter := preload("res://addons/kimodo_motion/poses/character_pose_converter.gd")
+const PoseLifecycle := preload("res://addons/kimodo_motion/domain/session_lifecycle.gd")
 const RigCompatibility := preload("res://addons/kimodo_motion/retargeting/rig_compatibility.gd")
 const TakeArchive := preload("res://addons/kimodo_motion/domain/take_archive_service.gd")
 const AcceptanceService := preload(
@@ -111,6 +115,7 @@ var _rig_setup_signature := ""
 var _rig_setup_skeleton_path := NodePath()
 var _acceptance_transactions: Array[RefCounted] = []
 var _fallback_undo_redo: UndoRedo
+var _generation_pose_snapshot: Array[Dictionary] = []
 
 
 func configure(
@@ -333,6 +338,7 @@ func _confirm_session_deletion() -> void:
 		_session_controller.detach_deleted()
 		_draft = null
 		_draft_path = ""
+		pose_keyframes_changed.emit([])
 		_preview_panel.save_dialog.hide()
 		_preview_panel.accept_dialog.hide()
 		_preview_panel.replace_dialog.hide()
@@ -430,6 +436,7 @@ func _activate_session(session: Resource, path: String, load_result: Dictionary)
 	_seed_edit.value = session.seed
 	_diffusion_steps_edit.value = session.diffusion_steps
 	_take_count_edit.value = session.requested_take_count
+	pose_keyframes_changed.emit(session.pose_keyframes)
 	var target_resource: Resource = null
 	if not session.target_scene_path.is_empty() and ResourceLoader.exists(session.target_scene_path):
 		target_resource = ResourceLoader.load(
@@ -467,6 +474,7 @@ func _on_switch_session_pressed() -> void:
 		return
 	_draft = null
 	_draft_path = ""
+	pose_keyframes_changed.emit([])
 	_preview_panel.set_accept_destination("")
 	_clear_generated_previews()
 	_set_workspace_visible(false)
@@ -755,6 +763,15 @@ func _on_generate_pressed() -> void:
 	options.seed = int(_seed_edit.value)
 	options.diffusion_steps = int(_diffusion_steps_edit.value)
 	options.num_samples = int(_take_count_edit.value)
+	_generation_pose_snapshot = _draft.pose_keyframes.duplicate(true)
+	for entry in _generation_pose_snapshot:
+		if entry.get("target_signature", "") != _draft.target_skeleton_signature:
+			_set_draft_error("A queued pose belongs to a different rig. Remove or recapture it in Pose Library.")
+			return
+		if entry.get("profile_configuration") != _pose_profile_configuration():
+			_set_draft_error("The rig profile changed after a pose was queued. Recapture its constraint in Pose Library.")
+			return
+		options.pose_constraints.append(entry["constraint"].duplicate(true))
 	_generation_client.generate(_client.backend_url, _client.capabilities, options)
 
 
@@ -816,6 +833,8 @@ func _on_motion_ready() -> void:
 		_generation_client.last_response_bytes,
 		_client.capabilities,
 		received_motions,
+		{},
+		_generation_pose_snapshot,
 	)
 	if not _preview_panel.replace_takes(received_motions):
 		_set_draft_error("The validated response could not be opened for preview.")
@@ -833,6 +852,111 @@ func _on_motion_ready() -> void:
 	_history_panel.set_session(_draft)
 	_history_panel.select_take(_draft.selected_take_id)
 	_update_draft_details()
+
+
+func prepare_pose_keyframe(target: Skeleton3D, authored_pose: Resource, frame: int) -> Dictionary:
+	if _draft == null or _rig_profile == null or _client.capabilities == null:
+		return {"ok": false, "message": "Open an AI Motion session, choose the matching character/profile and connect to the backend before queuing constraints."}
+	if _generation_client.state == GenerationClient.GenerationState.GENERATING:
+		return {"ok": false, "message": "Wait for generation to finish before editing constraints."}
+	if frame < 0 or frame >= int(_duration_edit.value):
+		return {"ok": false, "message": "The constraint frame is outside the AI Motion duration."}
+	if authored_pose == null or target == null:
+		return {"ok": false, "message": "Capture the complete character pose before preparing a constraint."}
+	var pose_problem: String = authored_pose.compatibility_error(target)
+	if not pose_problem.is_empty():
+		return {"ok": false, "message": pose_problem}
+	if SessionStore.skeleton_signature(target) != _draft.target_skeleton_signature:
+		return {"ok": false, "message": "The Pose Library character does not match this session's selected rig."}
+	var canonical := PoseConverter.canonical_skeleton(_client.capabilities.skeleton_payload)
+	var converted := PoseConverter.reconstruct(target, _rig_profile, canonical)
+	canonical.free()
+	if not converted["ok"]:
+		return converted
+	var samples: Array[Dictionary] = []
+	for track in authored_pose.sample.get_track_count():
+		var value: Variant = authored_pose.sample.track_get_key_value(track, 0)
+		var numbers: Array = [value.x, value.y, value.z]
+		if value is Quaternion:
+			numbers.append(value.w)
+		samples.append({"bone": String(authored_pose.sample.track_get_path(track).get_subname(0)), "kind": authored_pose.sample.track_get_type(track), "value": numbers})
+	var entry := {
+		"frame": frame,
+		"target_signature": _draft.target_skeleton_signature,
+		"source_rig_signature": authored_pose.rig_signature,
+		"authored_channels": samples,
+		"profile_path": _draft.rig_profile_path,
+		"profile_mapping": _rig_profile.canonical_to_target.duplicate(true),
+		"profile_configuration": _pose_profile_configuration(),
+		"session_id": _draft.session_id,
+		"conversion": {"version": 1, "position_residuals_m": converted["position_residuals_m"], "excluded_source_joints": converted["excluded_source_joints"], "excluded_character_bones": converted["excluded_character_bones"], "space": converted["root_space"]},
+		"constraint": {"type": "pose_keyframe", "frame": frame, "fill_mode": "rest", "joint_rotations": converted["joint_rotations"], "root_position": converted["root_position"]},
+	}
+	return {"ok": true, "entry": entry, "residuals": converted["position_residuals_m"]}
+
+
+func queue_pose_keyframe(entry: Dictionary) -> Dictionary:
+	if _draft == null or entry.get("session_id") != _draft.session_id or PoseLifecycle.is_retired(_draft.session_id):
+		return {"ok": false, "message": "The active session changed. Prepare the constraint again."}
+	if _rig_profile == null or entry.get("target_signature") != _draft.target_skeleton_signature or entry.get("profile_configuration") != _pose_profile_configuration():
+		return {"ok": false, "message": "The character/profile changed while reviewing. Prepare the constraint again."}
+	if _generation_client.state == GenerationClient.GenerationState.GENERATING:
+		return {"ok": false, "message": "Wait for generation before editing constraints."}
+	var after: Array[Dictionary] = _draft.pose_keyframes.duplicate(true)
+	for index in range(after.size() - 1, -1, -1):
+		if after[index]["frame"] == entry["frame"]:
+			after.remove_at(index)
+	after.append(entry.duplicate(true))
+	after.sort_custom(func(a: Dictionary, b: Dictionary) -> bool: return a["frame"] < b["frame"])
+	_record_pose_keyframe_edit(after)
+	return {"ok": true, "message": "Full-body pose queued at frame %d. Generate in AI Motion when ready." % entry["frame"]}
+
+
+func _pose_profile_configuration() -> Dictionary:
+	if _rig_profile == null:
+		return {}
+	return {
+		"mapping": _rig_profile.canonical_to_target.duplicate(true),
+		"root_policy": _rig_profile.root_motion_policy,
+		"scale_policy": _rig_profile.translation_scale_policy,
+		"measurements": _rig_profile.reference_measurements.duplicate(true),
+		"hand_frames": _rig_profile.hand_frames.duplicate(true),
+	}
+
+
+func remove_pose_keyframe(frame: int) -> void:
+	if _draft == null or _generation_client.state == GenerationClient.GenerationState.GENERATING:
+		return
+	var after: Array[Dictionary] = _draft.pose_keyframes.duplicate(true)
+	for index in range(after.size() - 1, -1, -1):
+		if after[index]["frame"] == frame:
+			after.remove_at(index)
+	_record_pose_keyframe_edit(after)
+
+
+func _record_pose_keyframe_edit(after: Array[Dictionary]) -> void:
+	var before: Array[Dictionary] = _draft.pose_keyframes.duplicate(true)
+	if _editor_plugin != null:
+		var undo := _editor_plugin.get_undo_redo()
+		undo.create_action("Edit Kimodo pose constraints", UndoRedo.MERGE_DISABLE, _draft)
+		undo.add_do_method(self, "_set_pose_keyframes", _draft.session_id, after)
+		undo.add_undo_method(self, "_set_pose_keyframes", _draft.session_id, before)
+		undo.commit_action()
+	else:
+		_fallback_undo_redo.create_action("Edit Kimodo pose constraints")
+		_fallback_undo_redo.add_do_method(Callable(self, "_set_pose_keyframes").bind(_draft.session_id, after))
+		_fallback_undo_redo.add_undo_method(Callable(self, "_set_pose_keyframes").bind(_draft.session_id, before))
+		_fallback_undo_redo.commit_action()
+
+
+func _set_pose_keyframes(session_id: String, entries: Array[Dictionary]) -> void:
+	# Merge this field only. Preserve newer prompt/history and reject retired owners.
+	if _draft == null or _draft.session_id != session_id or PoseLifecycle.is_retired(session_id):
+		return
+	_draft.pose_keyframes = entries.duplicate(true)
+	_draft.touch()
+	_session_controller.mark_dirty()
+	pose_keyframes_changed.emit(_draft.pose_keyframes)
 
 
 func _on_history_take_activated(generation_index: int, take_id: String) -> void:

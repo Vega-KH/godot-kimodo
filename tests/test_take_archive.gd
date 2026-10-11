@@ -39,13 +39,17 @@ func _run() -> void:
 	_session_path = saved["path"]
 	_session_data_path = Archive.DATA_ROOT.path_join(session.session_id)
 	var request_json := JSON.stringify({"options": {"num_samples": 2, "seed": 1234}})
+	var authored := [{"frame": 5, "authored_channels": [{"bone": "Hand", "value": [0.0, 0.0, 0.0, 1.0]}]}]
 	var result := Archive.archive_generation(
 		session, _session_path, request_json, capabilities_json,
-		response_bytes, capabilities, motions
+		response_bytes, capabilities, motions, {}, authored
 	)
 	_check(result["ok"], "two-take generation archives atomically")
 	if result["ok"]:
 		var record: Dictionary = result["record"]
+		_check(record["authored_pose_keyframes"] == authored, "exact authored pose provenance archived")
+		authored[0]["frame"] = 9
+		_check(record["authored_pose_keyframes"][0]["frame"] == 5, "authoring provenance is an independent immutable snapshot")
 		_check(session.generation_records.size() == 1, "session records committed generation")
 		_check(record["prompt"] == session.prompt, "generation records prompt title")
 		_check(record["takes"].size() == 2, "generation records both takes")

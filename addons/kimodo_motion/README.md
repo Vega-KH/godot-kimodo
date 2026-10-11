@@ -3,6 +3,11 @@
 Tested on Windows with Godot 4.7.2. This is an editor add-on, not an inference
 runtime: generation runs in the separate local kimodo-godot-server process.
 
+The separate **Pose Library** dock supports reusable full/partial character
+poses, capture of manual edits and keys at the native timeline's current frame. See the
+[Pose Library guide](POSE_LIBRARY.md) for capture, editing, applying and
+full-body SOMA-30 conditioning. Goal 22 was owner-accepted on 2026-10-11.
+
 ## Install and generate
 
 1. Copy this `addons/kimodo_motion` folder into your Godot project and keep the

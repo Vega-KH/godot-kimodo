@@ -1,8 +1,14 @@
 # Agent handoff — start here after the product plan
 
-Reviewed: 2026-10-01. Stage 1 is finished; the next session proposes Goal 22
-(poses) before implementation. Read [the docs index](README.md) in order.
-Do not mistake historical "pending" notes in Git for current blockers.
+Reviewed: 2026-10-11. Stage 1 and Goal 22 are complete and owner-accepted.
+The owner passed all manual tests and authorized pushing Goal 22. The separate
+Pose Library supports editable character poses, native current-frame keying and
+SOMA-30 conditioning. See [Stage 2 completion](STAGE2_COMPLETION.md) and
+[Goal 22 acceptance](GOAL22_ACCEPTANCE.md) for verification and limits.
+Goal 23 (scene root-path/facing guides) is proposed, not approved or started.
+Positional fitting, hand/foot targets and bone presets remain deferred.
+Read [the docs index](README.md) in order. Do not repeat passing checks without a
+new change or defect; wait for approval before implementing the next goal.
 
 ## Workspace and checkpoints
 
@@ -18,7 +24,7 @@ Do not mistake historical "pending" notes in Git for current blockers.
 - Shared development docs now live in extension `docs/`. Backend `docs/`
   retains server guides and ADRs. Root's former plan moved here and is versioned.
 - User has authorized pushing after completed and tested goals. No Stage 2 code
-  is approved simply because Stage 1 passed.
+  was approved simply because Stage 1 passed; Goal 22 now has explicit approval.
 
 ## Local operation and testing
 
@@ -50,8 +56,13 @@ From the backend repository:
 .\.venv\Scripts\python.exe -m ruff check .
 ```
 
-Latest full checks: 35 Godot checks; backend 24 passed/7 hardware-specific skips;
+Latest full checks: 39 Godot checks; backend 29 passed/7 hardware-specific skips;
 Ruff passed. Treat unexpected engine/parser errors and orphan warnings as failures.
+`scripts/test-pose-editor.ps1` additionally verifies actual editor scene-history
+Undo/Redo, native embedded animation keying and save/reload in a unique packaged
+project. It uses real rendering because headless editor scene thumbnails hit a
+dummy-renderer error. Native `::` animation resource paths are editable; imported
+source files/import metadata trigger the copy requirement.
 The owner-created Python venv and Godot AppData settings can be inaccessible
 under restricted agent identity. Owner-context execution passes: this is sandbox
 isolation, **not a broken Python installation**. Request normal permissions for
@@ -161,6 +172,38 @@ canonical rig/contact declaration. SDK supplies HTTP/glTF serialization.
 
 ## Pose-specific investigation notes
 
+Goal 22 code: `poses/pose_asset.gd` (versioned one-sample `.tres`),
+`pose_service.gd` (capture/interpolation/apply/key/safe save),
+`character_pose_converter.gd` (deliberate orientation reconstruction) and separate
+`ui/pose_library_panel.gd`. Session schema 2 gains optional `pose_keyframes`;
+exact authored channels/profile configuration are archived alongside requests.
+The 2026-10-11 user revision removes numeric bone-transform controls and follows
+the native clip/frame. A real editor probe verified public player
+`assigned_animation`/`current_animation_position`; guard `is_animation_active()`
+before reading position. Poll those public properties and subscribe to animation
+list/library signals; production does not search private editor controls. Capture
+reads actual bones, retaining manual edits. Apply & Key copies only affected
+tracks into the existing Animation resource with scene-history Undo/Redo;
+remove/readd of library entries resets the native cursor and must be avoided.
+The isolated editor harness exercises native dropdown/timeline seek signals.
+Direct resource/AnimationTree/inactive-player preview uses an editor dummy player
+and is unsupported. Sparse hand presets and positional fitting remain deferred.
+
+Conversion reverses both existing forward rest/palm calibrations, then decomposes
+global orientations against the explicit SOMA-30 hierarchy. Neck1/other missing
+articulation inherits its parent; fingers remain local. Root displacement reverses
+only the character-stage scale (the SOMA→humanoid stage preserves displacement).
+The canonical 77 reference supplies shared neutral positions; it is not the saved
+pose or original-frame source. Motion-position residuals use the transferred
+canonical neutral rather than the imported bind A/T pose. No solver exists yet;
+stress variants measured hand residuals up to 0.235 m. The user reviewed this
+limit and deferred positional fitting to discussion after Goal 22.
+
+`test_live_pose_conditioning.gd` runs only in a fresh isolated project with the
+licensed Jenny asset at `res://models/character.glb`; `--offline` proves fresh-process
+reload. Test outputs are intentionally retained outside either repository under
+the combined workspace `.research/goal22-live-<UUID>/`. Do not sweep user archives.
+
 The backend already advertises `pose_keyframe`; this is not proof of an
 editor authoring workflow. `translate.py::_pose_keyframe` consumes **local**
 xyzw joint quaternions on `model.skeleton` (SOMA-30), optional root position and
@@ -172,5 +215,9 @@ tests/dependencies before designing a pose schema.
 Godot skeleton "global pose" means skeleton-relative, not scene-world.
 Keep pose rotations, skeleton origin, scene placement and timeline time separate.
 Retargeting collapses joints and compensates rest/palm frames; forward results
-do not establish an inverse map. Prefer exact archived SOMA capture as the first
-round-trip oracle. Stage 2 must retain Stage 1 export/history/deletion guarantees.
+do not establish an inverse map. Character editing and deliberate reverse
+reconstruction are required by the revised workflow. Use canonical fixtures as
+conversion oracles, but do not restrict capture to archived SOMA frames. Prove
+native editor timeline access and fitting limits early; do not substitute an
+occurrence list for actual animation keys. Stage 2 must retain Stage 1
+export/history/deletion guarantees.

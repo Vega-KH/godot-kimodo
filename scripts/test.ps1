@@ -30,13 +30,25 @@ function Invoke-GodotCheck {
     if ($exitCode -ne 0) {
         throw "$Name exited with code $exitCode"
     }
-    if ($text -match '(?m)^(SCRIPT ERROR|ERROR:)') {
+    if ($text -match '(?m)^(SCRIPT ERROR|ERROR:)' -or $text -match 'Orphan|ObjectDB instances leaked|resources still in use at exit') {
         throw "$Name emitted a Godot error"
     }
 }
 
 Invoke-GodotCheck -Name 'Editor plugin startup' -GodotArguments @(
     '--headless', '--editor', '--path', '.', '--quit'
+)
+Invoke-GodotCheck -Name 'Sparse character pose capture and persistence' -GodotArguments @(
+    '--headless', '--path', '.', '--script', 'res://tests/test_pose_library.gd'
+)
+Invoke-GodotCheck -Name 'Independent pose panel native keys and undo' -GodotArguments @(
+    '--headless', '--path', '.', '--script', 'res://tests/test_pose_library_panel.gd'
+)
+Invoke-GodotCheck -Name 'Character to SOMA-30 reconstruction' -GodotArguments @(
+    '--headless', '--path', '.', '--script', 'res://tests/test_character_pose_converter.gd'
+)
+Invoke-GodotCheck -Name 'Pose conditioning queue and provenance' -GodotArguments @(
+    '--headless', '--path', '.', '--script', 'res://tests/test_pose_conditioning.gd'
 )
 Invoke-GodotCheck -Name 'Typed capability contract' -GodotArguments @(
     '--headless', '--path', '.', '--script', 'res://tests/test_capabilities_parser.gd'

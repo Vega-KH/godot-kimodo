@@ -32,6 +32,7 @@ static func archive_generation(
 	capabilities: RefCounted,
 	motions: Array,
 	test_options: Dictionary = {},
+	authored_pose_keyframes: Array = [],
 ) -> Dictionary:
 	if session == null or not session is Session or session.schema_version != Session.SCHEMA_VERSION:
 		return _error("invalid_session", "A current Kimodo session is required for archival.")
@@ -126,6 +127,7 @@ static func archive_generation(
 
 	var record := {
 		"record_id": record_id,
+		"authored_pose_keyframes": authored_pose_keyframes.duplicate(true),
 		"generated_at_utc": Session.utc_now(),
 		"prompt": session.prompt,
 		"request_json": request_json,

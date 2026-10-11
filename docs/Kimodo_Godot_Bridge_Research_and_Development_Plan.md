@@ -1,6 +1,6 @@
 # Kimodo Motion Studio for Godot — research and development plan
 
-Reviewed: 2026-10-01. **Stage 1 basic workflow complete; Stage 2 preparation.**
+Reviewed: 2026-10-07. **Stage 1 basic workflow complete; Stage 2 preparation.**
 Reference platform: Windows, Godot 4.7.2, RTX 4070 Laptop (8 GB VRAM),
 32 GB RAM. Extension: MIT; backend additions: Apache-2.0.
 This is a validated development workflow, not a universal installer or release.
@@ -88,13 +88,29 @@ Do not confuse animation export, a starting pose and a generation constraint.
 Godot provides [Skeleton3D bone-pose APIs](https://docs.godotengine.org/en/4.7/classes/class_skeleton3d.html),
 [Animation keyframes](https://docs.godotengine.org/en/4.7/classes/class_animation.html)
 and [custom Resource persistence](https://docs.godotengine.org/en/4.7/tutorials/scripting/resources.html).
-The proposed add-on pose asset supplies library identity, rig/reference metadata
-and reuse semantics over these primitives; its final format is not decided yet.
+The implemented add-on pose asset supplies library identity, rig/reference
+metadata and reuse semantics over these primitives: a versioned `.tres` Resource
+containing a native one-sample Animation.
 
-First investigate pose round-tripping and the canonical/character coordinate
-boundary. Retargeting is not generally invertible; copying character quaternions
-into a Kimodo constraint is not an acceptable shortcut. Establish source-rig
-pose capture/reload before committing to arbitrary character-to-source editing.
+Poses are editable character assets: capture a frame from any compatible skeletal
+animation or a manually edited character, retaining all or selected bone channels.
+Apply those channels at a chosen frame of another native animation, leaving absent
+channels untouched, then fine-tune and key the character before generation.
+An archived SOMA frame is one capture source, not a restriction on authoring.
+
+Keep the reusable character pose separate from the model constraint derived from
+an authored timeline frame. Direct character-to-SOMA-30 conversion is a required
+part of this workflow; SOMA-77 need not be the saved pose or an intermediate.
+Retargeting is not generally invertible, so implement and validate a deliberate
+profile-driven reverse reconstruction rather than copying character quaternions.
+Prove supported rig/proportion/position limits early and discuss any solver need.
+Goal 22 implements a separate Pose Library panel inside the existing add-on.
+The user's 2026-10-11 revision removes numeric pose bone edits and follows the
+native AnimationPlayer clip/frame for capture and keying. A real editor probe
+verified public assigned-animation and position properties, revising the earlier
+explicit-time fallback. Fine-tune bones using Godot before capturing.
+Orientation reconstruction is implemented with displayed position differences;
+the user deferred positional fitting for discussion in the next goal on 2026-10-07.
 
 Later slices can introduce prompt ranges, pose keyframes, supported hand/foot
 targets, root paths/heading, in-scene comparison and timeline acceptance.
