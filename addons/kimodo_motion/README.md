@@ -8,6 +8,10 @@ poses, capture of manual edits and keys at the native timeline's current frame. 
 [Pose Library guide](POSE_LIBRARY.md) for capture, editing, applying and
 full-body SOMA-30 conditioning. Goal 22 was owner-accepted on 2026-10-11.
 
+The **Guides** tab in AI Motion supports scene root-path waypoints and optional
+facing at the native current frame. See the [root guide workflow](ROOT_GUIDES.md)
+for visual authoring, pose conflicts, in-scene preview and offline reuse.
+
 ## Install and generate
 
 1. Copy this `addons/kimodo_motion` folder into your Godot project and keep the

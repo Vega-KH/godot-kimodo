@@ -85,6 +85,15 @@ func _run() -> void:
 	_check(panel.animation_selector.get_item_text(panel.animation_selector.selected) == "fresh", "new native clip appears and follows without reselecting character")
 	panel.request_key()
 	_check(is_equal_approx(player.get_animation("fresh").track_get_key_time(0, 0), 0.123456), "current frame preserves cursor precision")
+	var prepared_frames: Array[int] = []
+	panel.prepare_constraint = func(_skeleton: Skeleton3D, _pose: Resource, frame: int) -> Dictionary:
+		prepared_frames.append(frame)
+		return {"ok": false, "message": "Constraint frame probe"}
+	for seconds in [0.991, 1.009, 0.982, 1.018]:
+		player.seek(seconds, false)
+		panel._prepare_constraint()
+		_check(is_equal_approx(player.current_animation_position, seconds), "constraint rounding preserves native cursor")
+	_check(prepared_frames == [30, 30, 29, 31], "constraint queue rounds to nearest 30 FPS frame")
 	panel.title_edit.text = "edited"
 	panel.copy_animation()
 	_check(player.has_animation("pose_edits/edited"), "independent editable animation copy")

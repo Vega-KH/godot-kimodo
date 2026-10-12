@@ -1,14 +1,22 @@
 # Agent handoff — start here after the product plan
 
-Reviewed: 2026-10-11. Stage 1 and Goal 22 are complete and owner-accepted.
+Reviewed: 2026-10-12. Stage 1 and Goals 22–23 are complete and owner-accepted.
 The owner passed all manual tests and authorized pushing Goal 22. The separate
 Pose Library supports editable character poses, native current-frame keying and
 SOMA-30 conditioning. See [Stage 2 completion](STAGE2_COMPLETION.md) and
 [Goal 22 acceptance](GOAL22_ACCEPTANCE.md) for verification and limits.
-Goal 23 (scene root-path/facing guides) is proposed, not approved or started.
+Goal 23 (scene root-path/facing guides) was owner-accepted 2026-10-12.
+Implementation, real-editor/rendered checks and CUDA/offline workflow pass;
+owner manual acceptance passed. See [Goal 23 acceptance](GOAL23_ACCEPTANCE.md).
+The owner authorized the checkpoint. Do not implement Goal 24 before proposal
+and approval; discuss guide-driven visual Hips authoring and root-motion behavior.
+Owner feedback 2026-10-12 confirms guide-only generation; native scrubbing
+rounding and mixed pose/guide guidance were corrected. Keep the character scene
+node fixed; Hips bone edits carry pose root travel/turning. Both guide recording
+and pose queuing round to the nearest 30 FPS frame without seeking/resampling.
 Positional fitting, hand/foot targets and bone presets remain deferred.
 Read [the docs index](README.md) in order. Do not repeat passing checks without a
-new change or defect; wait for approval before implementing the next goal.
+new change or defect; the next goal remains unapproved.
 
 ## Workspace and checkpoints
 
@@ -56,7 +64,7 @@ From the backend repository:
 .\.venv\Scripts\python.exe -m ruff check .
 ```
 
-Latest full checks: 39 Godot checks; backend 29 passed/7 hardware-specific skips;
+Latest full checks: 41 Godot checks; backend 31 passed/7 hardware-specific skips;
 Ruff passed. Treat unexpected engine/parser errors and orphan warnings as failures.
 `scripts/test-pose-editor.ps1` additionally verifies actual editor scene-history
 Undo/Redo, native embedded animation keying and save/reload in a unique packaged
@@ -171,6 +179,18 @@ canonical rig/contact declaration. SDK supplies HTTP/glTF serialization.
   the empty artist-owned library.
 
 ## Pose-specific investigation notes
+
+Goal 23 code: `guides/root_guide_space.gd` owns scene/model root and heading
+conversion; `root_guide_service.gd` validates intent and combines it with poses;
+`ui/root_guides_panel.gd` supplies the fifth AI Motion tab and temporary scene
+helpers. Session schema 2 gains optional `root_guides`, archived as immutable
+`authored_root_guides`. Public native player properties drive current-frame
+recording; archived placement/profile must match before scene preview reuse.
+Backend `_normalize_origin` must rotate path headings with positions and use the
+earliest root pin across paths and poses. Restart the backend after updating.
+The isolated `test_live_root_guides.gd` uses copied `models/character.glb`, retains
+evidence outside repositories and supports fresh-process `--offline`/`--capture`.
+The agent-owned GPU test server was stopped after verification.
 
 Goal 22 code: `poses/pose_asset.gd` (versioned one-sample `.tres`),
 `pose_service.gd` (capture/interpolation/apply/key/safe save),

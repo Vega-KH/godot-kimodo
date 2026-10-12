@@ -71,6 +71,7 @@ func archive_generation(
 	motions: Array,
 	test_options: Dictionary = {},
 	authored_pose_keyframes: Array = [],
+	authored_root_guides: Dictionary = {},
 ) -> Dictionary:
 	if session == null or path.is_empty():
 		return {"ok": false, "message": "Open a session before archiving a generation."}
@@ -90,6 +91,7 @@ func archive_generation(
 		motions,
 		test_options,
 		authored_pose_keyframes,
+		authored_root_guides,
 	)
 	if result["ok"]:
 		dirty = false

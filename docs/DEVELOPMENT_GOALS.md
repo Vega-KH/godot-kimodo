@@ -1,8 +1,8 @@
 # Development goals
 
-Reviewed: **2026-10-11**.
+Reviewed: **2026-10-12**.
 **Goals 0–21 complete. Stage 1 basic workflow accepted and pushed.**
-**Goal 22 complete and owner-accepted 2026-10-11. Goal 23 proposed, awaiting approval.**
+**Goals 22–23 complete and owner-accepted. Goal 24 remains a discussion.**
 
 ## Read first
 
@@ -43,58 +43,28 @@ deferred; orientation-transfer differences are disclosed before submission.
 See [Stage 2 completion](STAGE2_COMPLETION.md) and
 [Goal 22 acceptance](GOAL22_ACCEPTANCE.md) for evidence and supported limits.
 
-## Goal 23 — proposed: scene root-path and facing guides
+## Goal 23 — completed 2026-10-12
 
-**Status: proposed for user review; not approved or started.**
+The owner passed all tests, including combined pose/guide authoring, and requested
+committing the checkpoint. Scene root-path and optional facing guides support
+native gizmos, nearest-30-FPS frame recording, pose conflicts, session Undo/offline
+reuse and archived-placement scene preview. Backend origin handling keeps path
+positions and headings in the same frame. See [Stage 2 completion](STAGE2_COMPLETION.md)
+and [Goal 23 acceptance](GOAL23_ACCEPTANCE.md) for evidence and limits.
 
-Artist result: place and rotate a root guide in the Godot scene, scrub the native
-AnimationPlayer timeline and record a waypoint at its current frame. Build a path
-and optional facing directions, combine them with existing full-body pose frames
-and a prompt, then generate and preview motion in the same scene placement.
-Keep Pose Library focused on reusable poses; guide authoring belongs in the
-motion/session tools.
+## Next discussion — visual Hips authoring with the guide
 
-### Scope and ordered work
+The owner finds numeric Hips editing tedious and suggests moving/turning the Hips
+bone with the scene guide. Discuss an explicit pose-editing mode: guide gizmos
+update Hips XZ/yaw while keeping scene-node placement fixed, preserving pose
+height/articulation, and offering native-frame keying/queueing with Undo. Keep
+route-only waypoints independent of bone edits. This could become Goal 24 after
+a detailed proposal and approval; no implementation is approved yet.
 
-1. Audit the pinned backend's root-path, heading and origin normalization behavior.
-   Prove scene-to-model and model-to-scene conversions with translated/rotated
-   characters and the reviewed profile's scale policy before building the UI.
-2. Provide an editor scene guide with Godot's position/rotation gizmos. Record,
-   replace and remove root waypoints at the native current frame; display frame
-   markers and the path in the viewport. Optional facing is explicit. A straight
-   segment joins waypoints for display; do not silently add dense constraints or
-   promise that generated motion follows a mathematical curve exactly.
-3. Store authored guides as session intent with Undo/Redo and offline reopening.
-   Changing character placement/profile or duration must invalidate or explicitly
-   rebase affected guides. Preserve Stage 1 sessions and Goal 22 pose assets.
-4. Translate reviewed waypoints to advertised `root_path` constraints. Detect
-   contradictory root/heading values where full-body pose frames also constrain
-   them; ask the artist to resolve conflicts rather than choose silently. Archive
-   exact authored guides, scene/model placement and the submitted request.
-5. Verify native-frame workflow, coordinate transforms, stale state, collision
-   behavior, save/reopen, combined pose/path generation, and Save/Accept/Undo.
-   Render the viewport/UI and complete a live generation plus owner manual gate.
-
-### Acceptance and boundaries
-
-- Record waypoints at native frames without calculating seconds or reselecting
-  the character. Moving/rotating the guide is visual and uses native gizmos.
-- A translated/rotated character's authored path converts correctly and the
-  generated preview returns to that placement. Conversions roundtrip within
-  1e-5 meters and 1e-4 radians; profile scale is applied exactly once.
-- A short curved walking route with optional facing and one/two full-body pose
-  constraints generates, archives and reopens offline. Report measured model
-  waypoint error and assess character placement visually; do not invent a model
-  accuracy guarantee before the first live result.
-- Preserve all current pose/native animation/session behaviors and require the
-  owner to approve the scene-guide workflow before committing the checkpoint.
-
-This goal adds root XZ travel and facing, not terrain navigation, collision
-avoidance or arbitrary root height control. Timed prompt ranges and hand/foot
-position/orientation targets are subsequent authoring slices. Positional fitting
-of character poses remains a separate design discussion: explicit effector
-constraints may address placement needs without first building a full inverse
-pose solver. Do not implement a solver or these later slices under Goal 23.
+Generated travel currently remains on bones, not parent Node3D tracks. Parent-node
+motion/extraction is a separate export/runtime policy discussion; do not silently
+copy displacement to parents and double the visible movement. Positional fitting
+remains deferred.
 
 ## General Stage 2 aims
 
@@ -119,6 +89,32 @@ compact completion history; Git retains detailed old checklists. Keep permanent
 compatibility decisions in backend ADRs and practical notes in the handoff.
 
 ## Remaining maintenance / honest limitations
+
+### Positional fitting of character poses — further work required
+
+The Goal 22 converter transfers edited body/palm orientations through reviewed
+rest frames, then reconstructs SOMA-30 local rotations. It does not solve for
+joint positions. Forward kinematics uses SOMA's own bone lengths, hierarchy and
+neutral offsets: the same joint orientations on a character with different limb
+proportions can therefore place hands/feet differently. Extra or collapsed joints
+also make the reverse transfer non-unique. Altered-proportion stress rigs measured
+hand differences up to 0.235 m before generation. The displayed transfer residual
+is separate from the model's later generation error. Non-root translations and
+body/ancestor scale edits are preserved in local poses but rejected for sending;
+rotation-only SOMA-30 cannot directly represent them.
+
+Proposed repair for a separately approved goal: initialize from the current
+orientation reconstruction, then perform constrained positional fitting/IK on
+the SOMA-30 hierarchy. Minimize selected hand/foot and body-position residuals
+against character targets converted to the model's coordinate/scale convention,
+while regularizing toward the authored orientations and preserving root, palm
+orientation and joint limits. Keep model bone lengths fixed, report unreachable
+targets and remaining residuals, and validate regular/proportion/partial rigs
+before promising accuracy. This is a proposed design, not an implemented solver.
+Explicit Kimodo effector position/orientation constraints are another route for
+target-based authoring, but do not by themselves repair full-body pose conversion
+or guarantee exact character placement after retargeting. Goal 23 adds root/path
+guides only; positional fitting remains deferred as requested.
 
 No known Stage 1 blocker remains. Carry forward:
 

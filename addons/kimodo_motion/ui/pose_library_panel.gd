@@ -603,9 +603,6 @@ func _prepare_constraint() -> void:
 	if not _timeline_ready() or not prepare_constraint.is_valid():
 		return
 	var frame_value := player.current_animation_position * 30.0
-	if absf(frame_value - roundf(frame_value)) > 0.00001:
-		_message("Choose a time on Kimodo's 30 FPS frame grid before queuing a constraint.")
-		return
 	var channels := {}
 	for index in skeleton.get_bone_count():
 		channels[String(skeleton.get_bone_name(index))] = Service.KINDS

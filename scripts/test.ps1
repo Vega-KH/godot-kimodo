@@ -41,6 +41,12 @@ Invoke-GodotCheck -Name 'Editor plugin startup' -GodotArguments @(
 Invoke-GodotCheck -Name 'Sparse character pose capture and persistence' -GodotArguments @(
     '--headless', '--path', '.', '--script', 'res://tests/test_pose_library.gd'
 )
+Invoke-GodotCheck -Name 'Root guide scene/model coordinate conversion' -GodotArguments @(
+    '--headless', '--path', '.', '--script', 'res://tests/test_root_guide_space.gd'
+)
+Invoke-GodotCheck -Name 'Scene guides, native frames and session persistence' -GodotArguments @(
+    '--headless', '--path', '.', '--script', 'res://tests/test_root_guides.gd'
+)
 Invoke-GodotCheck -Name 'Independent pose panel native keys and undo' -GodotArguments @(
     '--headless', '--path', '.', '--script', 'res://tests/test_pose_library_panel.gd'
 )

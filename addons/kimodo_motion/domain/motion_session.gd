@@ -29,6 +29,7 @@ const SCHEMA_VERSION := 2
 @export var artifacts: Dictionary = {}
 @export var acceptances: Dictionary = {}
 @export var pose_keyframes: Array[Dictionary] = []
+@export var root_guides: Dictionary = {}
 
 
 func touch() -> void:

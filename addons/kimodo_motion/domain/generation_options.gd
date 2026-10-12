@@ -7,6 +7,7 @@ var seed := 1234
 var diffusion_steps := 100
 var num_samples := 1
 var pose_constraints: Array[Dictionary] = []
+var root_constraints: Array[Dictionary] = []
 
 
 func validate(fps: float) -> Dictionary:
@@ -48,6 +49,28 @@ func validate(fps: float) -> Dictionary:
 		for component in position:
 			if not (component is float or component is int) or not is_finite(float(component)):
 				return _error("Pose constraint root position must be finite.")
+	var root_frames := {}
+	for constraint in root_constraints:
+		if constraint.get("type") != "root_path" or not constraint.get("frames") is Array or not constraint.get("positions_xz") is Array:
+			return _error("Root path constraints are incomplete.")
+		var frames: Array = constraint["frames"]
+		var positions: Array = constraint["positions_xz"]
+		if frames.is_empty() or frames.size() != positions.size():
+			return _error("Root path frame/position counts do not match.")
+		var headings: Variant = constraint.get("heading_radians")
+		if headings != null and (not headings is Array or headings.size() != frames.size()):
+			return _error("Root path heading count does not match its frames.")
+		var previous := -1
+		for index in frames.size():
+			var frame: Variant = frames[index]
+			if not frame is int or frame <= previous or frame >= duration_frames or root_frames.has(frame):
+				return _error("Root path frames must be ordered, unique and within the duration.")
+			previous = frame
+			root_frames[frame] = true
+			if not preload("res://addons/kimodo_motion/guides/root_guide_service.gd")._numbers(positions[index], 2):
+				return _error("Root path positions must be finite XZ pairs.")
+			if headings != null and not preload("res://addons/kimodo_motion/guides/root_guide_service.gd")._number(headings[index]):
+				return _error("Root path headings must be finite.")
 	return {"ok": true}
 
 
@@ -61,7 +84,7 @@ func to_mmcp_request(capabilities: RefCounted) -> Dictionary:
 			"prompt": prompt.strip_edges(),
 			"duration_frames": duration_frames,
 		}],
-		"constraints": pose_constraints.duplicate(true),
+		"constraints": pose_constraints.duplicate(true) + root_constraints.duplicate(true),
 		"timing": {"fps": capabilities.fps},
 		"options": {
 			"diffusion_steps": diffusion_steps,

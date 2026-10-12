@@ -13,6 +13,7 @@ $poseProject = [IO.Path]::GetFullPath($Destination)
 $probeDirectory = Join-Path $poseProject 'addons/editor_pose_probe'
 New-Item -ItemType Directory -Path $probeDirectory | Out-Null
 Copy-Item -LiteralPath (Join-Path $poseRepo 'tests/editor_pose_probe.gd') -Destination (Join-Path $probeDirectory 'plugin.gd')
+Copy-Item -LiteralPath (Join-Path $poseRepo 'tests/fixtures/soma77_capabilities.json') -Destination (Join-Path $poseProject 'guide_capabilities.json')
 @'
 [plugin]
 name="Pose editor integration probe"

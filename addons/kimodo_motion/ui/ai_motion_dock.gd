@@ -3,6 +3,7 @@ class_name AiMotionDock
 extends VBoxContainer
 
 signal pose_keyframes_changed(entries: Array)
+signal root_guides_changed(intent: Dictionary)
 
 const Client := preload("res://addons/kimodo_motion/transport/mmcp_capabilities_client.gd")
 const GenerationClient := preload("res://addons/kimodo_motion/transport/mmcp_generation_client.gd")
@@ -22,6 +23,8 @@ const RigProfile := preload("res://addons/kimodo_motion/retargeting/kimodo_rig_p
 const RigMatcher := preload("res://addons/kimodo_motion/retargeting/rig_candidate_matcher.gd")
 const RigProfileStore := preload("res://addons/kimodo_motion/retargeting/rig_profile_store.gd")
 const PoseConverter := preload("res://addons/kimodo_motion/poses/character_pose_converter.gd")
+const RootGuides := preload("res://addons/kimodo_motion/guides/root_guide_service.gd")
+const RootGuidesPanel := preload("res://addons/kimodo_motion/ui/root_guides_panel.gd")
 const PoseLifecycle := preload("res://addons/kimodo_motion/domain/session_lifecycle.gd")
 const RigCompatibility := preload("res://addons/kimodo_motion/retargeting/rig_compatibility.gd")
 const TakeArchive := preload("res://addons/kimodo_motion/domain/take_archive_service.gd")
@@ -116,6 +119,8 @@ var _rig_setup_skeleton_path := NodePath()
 var _acceptance_transactions: Array[RefCounted] = []
 var _fallback_undo_redo: UndoRedo
 var _generation_pose_snapshot: Array[Dictionary] = []
+var _generation_guides_snapshot: Dictionary = {}
+var _guides_panel: Control
 
 
 func configure(
@@ -213,6 +218,9 @@ func _build_ui() -> void:
 	_rig_setup_panel = RigSetupPanel.new()
 	_workspace_tabs.add_child(_rig_setup_panel)
 	_rig_setup_panel.save_requested.connect(_on_save_rig_profile)
+	_guides_panel = RootGuidesPanel.new()
+	_guides_panel.dock = self
+	_workspace_tabs.add_child(_guides_panel)
 
 
 func _bind_generation_panel_controls() -> void:
@@ -339,6 +347,7 @@ func _confirm_session_deletion() -> void:
 		_draft = null
 		_draft_path = ""
 		pose_keyframes_changed.emit([])
+		root_guides_changed.emit({})
 		_preview_panel.save_dialog.hide()
 		_preview_panel.accept_dialog.hide()
 		_preview_panel.replace_dialog.hide()
@@ -437,6 +446,7 @@ func _activate_session(session: Resource, path: String, load_result: Dictionary)
 	_diffusion_steps_edit.value = session.diffusion_steps
 	_take_count_edit.value = session.requested_take_count
 	pose_keyframes_changed.emit(session.pose_keyframes)
+	root_guides_changed.emit(session.root_guides)
 	var target_resource: Resource = null
 	if not session.target_scene_path.is_empty() and ResourceLoader.exists(session.target_scene_path):
 		target_resource = ResourceLoader.load(
@@ -475,6 +485,7 @@ func _on_switch_session_pressed() -> void:
 	_draft = null
 	_draft_path = ""
 	pose_keyframes_changed.emit([])
+	root_guides_changed.emit({})
 	_preview_panel.set_accept_destination("")
 	_clear_generated_previews()
 	_set_workspace_visible(false)
@@ -764,6 +775,17 @@ func _on_generate_pressed() -> void:
 	options.diffusion_steps = int(_diffusion_steps_edit.value)
 	options.num_samples = int(_take_count_edit.value)
 	_generation_pose_snapshot = _draft.pose_keyframes.duplicate(true)
+	_generation_guides_snapshot = _draft.root_guides.duplicate(true)
+	if not _generation_guides_snapshot.is_empty() and not _generation_guides_snapshot["points"].is_empty():
+		var binding: Dictionary = _guides_panel.check_current_binding()
+		if not binding["ok"]:
+			_set_draft_error(binding["message"])
+			return
+		var guide_request := RootGuides.constraints(_generation_guides_snapshot, _generation_pose_snapshot, options.duration_frames)
+		if not guide_request["ok"]:
+			_set_draft_error(guide_request["message"])
+			return
+		options.root_constraints.assign(guide_request["constraints"])
 	for entry in _generation_pose_snapshot:
 		if entry.get("target_signature", "") != _draft.target_skeleton_signature:
 			_set_draft_error("A queued pose belongs to a different rig. Remove or recapture it in Pose Library.")
@@ -835,6 +857,7 @@ func _on_motion_ready() -> void:
 		received_motions,
 		{},
 		_generation_pose_snapshot,
+		_generation_guides_snapshot,
 	)
 	if not _preview_panel.replace_takes(received_motions):
 		_set_draft_error("The validated response could not be opened for preview.")
@@ -957,6 +980,40 @@ func _set_pose_keyframes(session_id: String, entries: Array[Dictionary]) -> void
 	_draft.touch()
 	_session_controller.mark_dirty()
 	pose_keyframes_changed.emit(_draft.pose_keyframes)
+
+
+func _guide_editing_locked() -> bool:
+	return _generation_client != null and _generation_client.state == GenerationClient.GenerationState.GENERATING
+
+
+func edit_root_guides(after: Dictionary) -> void:
+	if _draft == null or _guide_editing_locked() or PoseLifecycle.is_retired(_draft.session_id):
+		return
+	var problem := RootGuides.validation_error(after)
+	if not problem.is_empty():
+		_set_draft_error(problem)
+		return
+	var before: Dictionary = _draft.root_guides.duplicate(true)
+	if _editor_plugin != null:
+		var undo := _editor_plugin.get_undo_redo()
+		undo.create_action("Edit Kimodo root guides", UndoRedo.MERGE_DISABLE, _draft)
+		undo.add_do_method(self, "_set_root_guides", _draft.session_id, after.duplicate(true))
+		undo.add_undo_method(self, "_set_root_guides", _draft.session_id, before)
+		undo.commit_action()
+	else:
+		_fallback_undo_redo.create_action("Edit Kimodo root guides")
+		_fallback_undo_redo.add_do_method(Callable(self, "_set_root_guides").bind(_draft.session_id, after.duplicate(true)))
+		_fallback_undo_redo.add_undo_method(Callable(self, "_set_root_guides").bind(_draft.session_id, before))
+		_fallback_undo_redo.commit_action()
+
+
+func _set_root_guides(session_id: String, intent: Dictionary) -> void:
+	if _draft == null or _draft.session_id != session_id or PoseLifecycle.is_retired(session_id):
+		return
+	_draft.root_guides = intent.duplicate(true)
+	_draft.touch()
+	_session_controller.mark_dirty()
+	root_guides_changed.emit(_draft.root_guides)
 
 
 func _on_history_take_activated(generation_index: int, take_id: String) -> void:

@@ -197,6 +197,9 @@ static func validate_session(session: Resource) -> String:
 		if not profile_result["ok"]:
 			return "KimodoSession rig profile path is invalid."
 	var pose_options := preload("res://addons/kimodo_motion/domain/generation_options.gd").new()
+	var guide_problem := preload("res://addons/kimodo_motion/guides/root_guide_service.gd").validation_error(session.root_guides)
+	if not guide_problem.is_empty():
+		return "KimodoSession root guides are invalid: " + guide_problem
 	pose_options.duration_frames = 900
 	for entry in session.pose_keyframes:
 		if not entry.get("constraint") is Dictionary or not entry.get("authored_channels") is Array or not entry.get("profile_mapping") is Dictionary:

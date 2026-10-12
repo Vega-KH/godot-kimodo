@@ -5,6 +5,10 @@ extends EditorPlugin
 # Exercises the real editor history and saved-scene resources, not fallback UndoRedo.
 const Fixture := preload("res://addons/kimodo_motion/retargeting/humanoid_fixture.gd")
 const Service := preload("res://addons/kimodo_motion/poses/pose_service.gd")
+const Session := preload("res://addons/kimodo_motion/domain/motion_session.gd")
+const Store := preload("res://addons/kimodo_motion/domain/motion_session_store.gd")
+const Capabilities := preload("res://addons/kimodo_motion/transport/mmcp_capabilities.gd")
+const Profile := preload("res://addons/kimodo_motion/retargeting/kimodo_rig_profile.gd")
 var failures: Array[String] = []
 
 
@@ -146,6 +150,61 @@ func _run() -> void:
 	history.undo()
 	_check(player.get_animation("pose_edits/independent").track_get_key_count(0) == 2, "real editor undo restores saved copy keys")
 	_check(EditorInterface.save_scene() == OK, "save final copied scene")
+	var dock := EditorInterface.get_base_control().find_child("AI Motion", true, false)
+	var session := Session.create_new("Editor root guides")
+	var saved_session := Store.save_as(session, "res://guide_session", "scene_guides")
+	_check(saved_session["ok"], "editor guide session saved")
+	dock._session_controller.session = session
+	dock._session_controller.path = saved_session["path"]
+	dock._activate_session(session, saved_session["path"], {})
+	dock._client.capabilities = Capabilities.parse_json_text(FileAccess.get_file_as_string("res://guide_capabilities.json"))["capabilities"]
+	# This synthetic editor fixture has no skin/mesh. Use its explicit exact-name
+	# reviewed profile; private-character compatibility is covered by live tests.
+	dock._rig_profile = Profile.exact_names(skeleton, scene.get_path_to(skeleton))["profile"]
+	session.target_scene_path = "res://editor_pose_scene.tscn"
+	session.target_skeleton_signature = Store.skeleton_signature(skeleton)
+	scene.position = Vector3(3, 0, -2)
+	scene.rotation.y = 0.6
+	var guides: Control = dock._guides_panel
+	EditorInterface.get_selection().clear()
+	EditorInterface.get_selection().add_node(skeleton)
+	guides.use_selection()
+	_check(guides.guide != null, "real editor scene guide created")
+	if guides.guide == null:
+		print("EDITOR_GUIDE_STATUS ", guides.status.text)
+		_finish()
+		return
+	guides.select_guide()
+	_check(EditorInterface.get_selection().get_selected_nodes().has(guides.guide), "native scene guide selected for transform gizmo")
+	EditorInterface.edit_node(player)
+	for frame in 5:
+		await get_tree().process_frame
+	native_track.emit_signal("timeline_changed", 0.0, false, false)
+	guides.record_current()
+	native_track.emit_signal("timeline_changed", 0.501, false, false)
+	_check(guides._frame() == 15, "native editor scrub rounds to nearest Kimodo frame")
+	guides.guide.global_position += Vector3(0.4, 0, 0.5)
+	guides.heading_check.button_pressed = true
+	guides.record_current()
+	_check(session.root_guides["points"].size() == 2, "real editor native root waypoints recorded")
+	var guide_history_id := manager.get_object_history_id(session)
+	var guide_history := manager.get_history_undo_redo(guide_history_id)
+	guide_history.undo()
+	_check(session.root_guides["points"].size() == 1, "real editor guide intent undo")
+	guide_history.redo()
+	_check(session.root_guides["points"].size() == 2, "real editor guide intent redo")
+	_check(dock._session_controller.flush()["ok"], "real editor root guides persist")
+	dock._workspace_tabs.current_tab = guides.get_index()
+	guides.select_guide()
+	for frame in 10:
+		await get_tree().process_frame
+	await RenderingServer.frame_post_draw
+	_check(EditorInterface.get_editor_viewport_3d().get_texture().get_image().save_png("res://guide_viewport.png") == OK, "guide viewport rendered")
+	_check(get_viewport().get_texture().get_image().save_png("res://guide_editor.png") == OK, "guide editor panel rendered")
+	_check(EditorInterface.save_scene() == OK, "scene saves while helpers present")
+	var clean := (ResourceLoader.load("res://editor_pose_scene.tscn", "PackedScene", ResourceLoader.CACHE_MODE_IGNORE) as PackedScene).instantiate()
+	_check(clean.find_child("KimodoRootGuide", true, false) == null and clean.find_child("KimodoRootPath", true, false) == null, "temporary scene helpers excluded from saved scene")
+	clean.free()
 	_finish()
 
 

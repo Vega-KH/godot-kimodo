@@ -81,8 +81,9 @@ Choose the matching character/profile in AI Motion, open a session and connect
 to the backend. Seek the destination animation frame, apply partial poses and
 make any manual edits before queuing it.
 
-In **Constraints**, select a native frame on the 30 FPS grid and click **Queue
-current frame…**. This captures the complete character state, including
+In **Constraints**, scrub to the desired native time and click **Queue
+current frame…**. The destination rounds to the nearest 30 FPS Kimodo frame,
+without moving the playhead or resampling bone edits. This captures the complete character state, including
 channels that were absent from a partial library pose. Review the conversion
 report and confirm. A constraint at the same frame is replaced. Queue more
 frames explicitly; the add-on does not infer constraints from every native key.
@@ -96,6 +97,10 @@ Collapsed/absent joints inherit the preceding reconstructed orientation;
 unobservable articulation has a deterministic identity local rotation. Root
 travel/height follows the profile's translation scale. Skeleton-relative
 coordinates exclude the scene node's placement.
+When combining with [root guides](ROOT_GUIDES.md), keep the character's scene
+node fixed. Apply a library pose first, then move/rotate its Hips bone, queue
+the frame, and match/record the guide. Moving the scene node does not add travel
+or turning to the queued pose and invalidates the guide reference.
 
 The backend's full-body conditioning constrains FK joint positions, root
 height/path and heading. It does not promise exact reproduction of every twist.

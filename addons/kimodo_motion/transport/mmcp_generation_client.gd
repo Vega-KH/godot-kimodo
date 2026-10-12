@@ -39,6 +39,9 @@ func generate(
 	if not options.pose_constraints.is_empty() and "pose_keyframe" not in capabilities.constraint_types:
 		_set_state(GenerationState.ERROR, "This backend does not advertise pose-keyframe conditioning.")
 		return
+	if not options.root_constraints.is_empty() and "root_path" not in capabilities.constraint_types:
+		_set_state(GenerationState.ERROR, "This backend does not advertise root-path conditioning.")
+		return
 	var validation: Dictionary = options.validate(capabilities.fps)
 	if not validation["ok"]:
 		_set_state(GenerationState.ERROR, validation["message"])
