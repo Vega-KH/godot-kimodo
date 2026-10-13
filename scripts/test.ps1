@@ -44,6 +44,12 @@ Invoke-GodotCheck -Name 'Sparse character pose capture and persistence' -GodotAr
 Invoke-GodotCheck -Name 'Root guide scene/model coordinate conversion' -GodotArguments @(
     '--headless', '--path', '.', '--script', 'res://tests/test_root_guide_space.gd'
 )
+Invoke-GodotCheck -Name 'Visual guide pose authoring and authored ghosts' -GodotArguments @(
+    '--headless', '--path', '.', '--script', 'res://tests/test_guide_pose_authoring.gd'
+)
+Invoke-GodotCheck -Name 'Calibrated guide Hips editing coordinates' -GodotArguments @(
+    '--headless', '--path', '.', '--script', 'res://tests/test_guide_pose_space.gd'
+)
 Invoke-GodotCheck -Name 'Scene guides, native frames and session persistence' -GodotArguments @(
     '--headless', '--path', '.', '--script', 'res://tests/test_root_guides.gd'
 )

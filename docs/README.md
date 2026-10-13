@@ -1,14 +1,13 @@
 # Project development documents
 
-Stage 1 and Goals 22–23 are complete and owner-accepted (Goal 23: 2026-10-12).
+Stage 1 and Goals 22–24 are complete and owner-accepted (Goal 24: 2026-10-13).
 The independent Pose Library follows the native AnimationPlayer clip/frame and
 converts complete authored poses to SOMA-30 constraints.
 See [Stage 2 completion](STAGE2_COMPLETION.md) and
 [Goal 22 acceptance](GOAL22_ACCEPTANCE.md) and [Goal 23 acceptance](GOAL23_ACCEPTANCE.md).
 Positional fitting remains documented as further work in the development goals.
 Artist instructions are in [the root guide workflow](../addons/kimodo_motion/ROOT_GUIDES.md).
-The next discussion concerns visual Hips authoring with the scene guide; Goal 24
-has not yet been proposed in detail or approved.
+Goal 24 visual Hips/pose/waypoint authoring with authored ghosts passed developer checks and owner acceptance, including shared character selection and compatible pose filtering. See [Goal 24 acceptance](GOAL24_ACCEPTANCE.md). The owner requested discussion before planning the next goal; stop here.
 
 For a fresh development session, read these in order:
 

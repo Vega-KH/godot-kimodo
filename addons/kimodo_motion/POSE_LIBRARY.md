@@ -7,6 +7,12 @@ Motion session. Goal 22 was owner-accepted on 2026-10-11.
 
 ## Choose a character and frame
 
+Selecting **Use selected scene character** in AI Motion also selects that
+character in Pose Library. The saved pose list automatically filters to the
+selected skeleton's compatible hierarchy/rest pose and refreshes on character
+changes. With no character selected the list is empty. Pose files are kept;
+select their compatible character to see them again.
+
 Open a scene containing your character and an AnimationPlayer. Select the
 character, its skeleton or its player in the Scene tree, then click **Use selected
 character**. The selected subtree must resolve to one Skeleton3D and one
@@ -98,8 +104,10 @@ unobservable articulation has a deterministic identity local rotation. Root
 travel/height follows the profile's translation scale. Skeleton-relative
 coordinates exclude the scene node's placement.
 When combining with [root guides](ROOT_GUIDES.md), keep the character's scene
-node fixed. Apply a library pose first, then move/rotate its Hips bone, queue
-the frame, and match/record the guide. Moving the scene node does not add travel
+node fixed. In Guides, enable **Move character with guide**, apply a library pose,
+move/rotate the guide, then **Record waypoint and pose at current frame**.
+The guide follows applied Hips changes. Separate bone edits/queuing and guide
+matching remain available. Moving the scene node does not add travel
 or turning to the queued pose and invalidates the guide reference.
 
 The backend's full-body conditioning constrains FK joint positions, root

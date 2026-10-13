@@ -27,6 +27,10 @@ static func parse_json_text(text: String) -> Dictionary:
 	return parse_payload(parser.data)
 
 
+static func validate_skeleton_payload(payload: Dictionary) -> Dictionary:
+	return _validate_soma77(payload)
+
+
 static func parse_payload(payload: Variant) -> Dictionary:
 	if not payload is Dictionary:
 		return _error("invalid_capabilities", "Capabilities must be a JSON object.")

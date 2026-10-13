@@ -1,8 +1,8 @@
 # Development goals
 
-Reviewed: **2026-10-12**.
+Reviewed: **2026-10-13**.
 **Goals 0–21 complete. Stage 1 basic workflow accepted and pushed.**
-**Goals 22–23 complete and owner-accepted. Goal 24 remains a discussion.**
+**Goals 22–24 complete and owner-accepted. Stop for discussion before planning the next goal.**
 
 ## Read first
 
@@ -52,19 +52,22 @@ reuse and archived-placement scene preview. Backend origin handling keeps path
 positions and headings in the same frame. See [Stage 2 completion](STAGE2_COMPLETION.md)
 and [Goal 23 acceptance](GOAL23_ACCEPTANCE.md) for evidence and limits.
 
-## Next discussion — visual Hips authoring with the guide
+## Goal 24 — completed 2026-10-13
 
-The owner finds numeric Hips editing tedious and suggests moving/turning the Hips
-bone with the scene guide. Discuss an explicit pose-editing mode: guide gizmos
-update Hips XZ/yaw while keeping scene-node placement fixed, preserving pose
-height/articulation, and offering native-frame keying/queueing with Undo. Keep
-route-only waypoints independent of bone edits. This could become Goal 24 after
-a detailed proposal and approval; no implementation is approved yet.
+The owner passed the visual workflow and both final usability additions, then
+requested committing/pushing and stopping before planning the next goal.
+Guide-driven Hips XZ/yaw editing, pose-to-guide synchronization, atomic paired
+waypoint/full-body recording, frame-labelled authored ghosts, selection at the
+current native frame, Undo/Redo and offline reconstruction are verified.
+AI Motion character selection also binds Pose Library; its list refreshes to
+show only compatible poses without modifying saved assets.
 
-Generated travel currently remains on bones, not parent Node3D tracks. Parent-node
-motion/extraction is a separate export/runtime policy discussion; do not silently
-copy displacement to parents and double the visible movement. Positional fitting
-remains deferred.
+Scene-node placement remains fixed; recording does not implicitly key native
+animations. Positional fitting and parent-node root-motion extraction remain
+deferred. See [Stage 2 completion](STAGE2_COMPLETION.md) and
+[Goal 24 acceptance](GOAL24_ACCEPTANCE.md) for evidence and limits.
+
+No next goal is proposed or authorized. Wait for the owner's discussion.
 
 ## General Stage 2 aims
 

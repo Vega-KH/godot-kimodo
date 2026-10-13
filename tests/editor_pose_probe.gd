@@ -151,6 +151,9 @@ func _run() -> void:
 	_check(player.get_animation("pose_edits/independent").track_get_key_count(0) == 2, "real editor undo restores saved copy keys")
 	_check(EditorInterface.save_scene() == OK, "save final copied scene")
 	var dock := EditorInterface.get_base_control().find_child("AI Motion", true, false)
+	# The probe emits confirmation signals directly; native button clicks would
+	# already have hidden this pose-replacement modal before changing docks.
+	panel.replace_dialog.hide()
 	var session := Session.create_new("Editor root guides")
 	var saved_session := Store.save_as(session, "res://guide_session", "scene_guides")
 	_check(saved_session["ok"], "editor guide session saved")
@@ -168,7 +171,9 @@ func _run() -> void:
 	var guides: Control = dock._guides_panel
 	EditorInterface.get_selection().clear()
 	EditorInterface.get_selection().add_node(skeleton)
+	panel.set_target(null, null)
 	guides.use_selection()
+	_check(panel.skeleton == skeleton and panel.player == player, "motion dock scene selection also binds Pose Library")
 	_check(guides.guide != null, "real editor scene guide created")
 	if guides.guide == null:
 		print("EDITOR_GUIDE_STATUS ", guides.status.text)
@@ -193,6 +198,49 @@ func _run() -> void:
 	_check(session.root_guides["points"].size() == 1, "real editor guide intent undo")
 	guide_history.redo()
 	_check(session.root_guides["points"].size() == 2, "real editor guide intent redo")
+	# Native 3D gizmos store a Node3D transform in scene history. Exercise that
+	# same property operation with the real editor manager, including Undo/Redo.
+	dock._character_target = load("res://editor_pose_scene.tscn") as PackedScene
+	guides.edit_character.button_pressed = true
+	var hips := skeleton.find_bone("Hips")
+	var hips_before := skeleton.get_bone_global_pose(hips)
+	var guide_before: Transform3D = guides.guide.global_transform
+	var guide_after := guide_before
+	guide_after.origin += Vector3(0.4, 0, -0.2)
+	guide_after.basis = Basis(Vector3.UP, 0.35) * guide_after.basis
+	manager.create_action("Move root guide probe", UndoRedo.MERGE_DISABLE, guides.guide)
+	manager.add_do_property(guides.guide, "global_transform", guide_after)
+	manager.add_undo_property(guides.guide, "global_transform", guide_before)
+	manager.commit_action()
+	for frame in 3:
+		await get_tree().process_frame
+	_check(not skeleton.get_bone_global_pose(hips).is_equal_approx(hips_before), "native guide transform edits Hips visually")
+	var transform_history := manager.get_history_undo_redo(manager.get_object_history_id(guides.guide))
+	transform_history.undo()
+	for frame in 3:
+		await get_tree().process_frame
+	_check(skeleton.get_bone_global_pose(hips).is_equal_approx(hips_before), "native guide Undo restores Hips")
+	transform_history.redo()
+	for frame in 3:
+		await get_tree().process_frame
+	guides.record_pose_current()
+	if not guides._pending.is_empty():
+		guides.replace_dialog.confirmed.emit()
+	_check(session.pose_keyframes.size() == 1 and session.root_guides["points"].size() == 2, "real editor combined recording")
+	guide_history.undo()
+	_check(session.pose_keyframes.is_empty() and session.root_guides["points"].size() == 2, "one session Undo restores waypoint and pose together")
+	guide_history.redo()
+	_check(session.pose_keyframes.size() == 1, "one session Redo restores combined pair")
+	_check(guides.path_node.find_child("KimodoAuthoredPose_15", true, false) != null, "real editor authored ghost reconstructed")
+	native_track.emit_signal("timeline_changed", 1.0, false, false)
+	var authored_ghost: Node = guides.path_node.find_child("KimodoAuthoredPose_15", true, false)
+	EditorInterface.get_selection().clear()
+	EditorInterface.get_selection().add_node(authored_ghost)
+	for frame in 4:
+		await get_tree().process_frame
+	_check(is_equal_approx(player.current_animation_position, 1.0) and is_equal_approx(native_cursor.value, 1.0), "selecting authored ghost preserves native/public timeline agreement")
+	_check(EditorInterface.get_selection().get_selected_nodes().has(guides.guide), "selecting authored ghost returns guide for editing")
+	print("EDITOR_AUTHORED_FRAME cursor=", native_cursor.value, " player=", player.current_animation_position)
 	_check(dock._session_controller.flush()["ok"], "real editor root guides persist")
 	dock._workspace_tabs.current_tab = guides.get_index()
 	guides.select_guide()

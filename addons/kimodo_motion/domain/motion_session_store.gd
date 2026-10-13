@@ -206,6 +206,12 @@ static func validate_session(session: Resource) -> String:
 			return "KimodoSession pose authoring data is incomplete."
 		if entry.get("frame") != entry["constraint"].get("frame") or String(entry.get("target_signature", "")).length() != 64:
 			return "KimodoSession pose constraint identity is invalid."
+		if entry.has("guide_pose_id"):
+			if not entry["guide_pose_id"] is String or entry["guide_pose_id"].is_empty():
+				return "KimodoSession combined pose identity is invalid."
+			var channel_problem := preload("res://addons/kimodo_motion/guides/guide_pose_service.gd").channel_error(entry["authored_channels"])
+			if not channel_problem.is_empty():
+				return channel_problem
 		pose_options.pose_constraints.append(entry["constraint"])
 	var pose_validation: Dictionary = pose_options.validate(30.0)
 	if not pose_validation["ok"]:

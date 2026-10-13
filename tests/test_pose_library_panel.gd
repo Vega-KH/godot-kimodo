@@ -2,6 +2,8 @@ extends SceneTree
 
 const PosePanel := preload("res://addons/kimodo_motion/ui/pose_library_panel.gd")
 const Fixture := preload("res://addons/kimodo_motion/retargeting/humanoid_fixture.gd")
+const Service := preload("res://addons/kimodo_motion/poses/pose_service.gd")
+const Session := preload("res://addons/kimodo_motion/domain/motion_session.gd")
 var failures: Array[String] = []
 
 
@@ -124,6 +126,29 @@ func _run() -> void:
 	imported.take_over_path("res://tests/imported_character.glb::Animation_test")
 	_check(PosePanel._is_imported_animation(imported), "imported scene clip requires independent copy")
 	_check(not PosePanel._is_imported_animation(animation), "native scene subresource remains editable")
+	var library_directory := "res://tests/.pose-filter-" + Session.create_uuid()
+	var rig_a := Service.capture(skeleton, "Rig A hand", {"LeftHand": [Animation.TYPE_ROTATION_3D]})
+	var other_skeleton := Fixture.create_skeleton()
+	root.add_child(other_skeleton)
+	other_skeleton.add_bone("ExtraBranch")
+	other_skeleton.set_bone_parent(other_skeleton.get_bone_count() - 1, other_skeleton.find_bone("Hips"))
+	var rig_b := Service.capture(other_skeleton, "Rig B hand", {"LeftHand": [Animation.TYPE_ROTATION_3D]})
+	var path_a := library_directory.path_join("rig_a.tres")
+	var path_b := library_directory.path_join("rig_b.tres")
+	_check(Service.save_new(rig_a["pose"], path_a)["ok"] and Service.save_new(rig_b["pose"], path_b)["ok"], "isolated compatible/incompatible pose fixtures save")
+	panel._library_directory = library_directory
+	panel.set_target(skeleton, player)
+	_check(panel._library_paths == [path_a] and panel.pose_list.get_item_text(0) == "Rig A hand", "pose list includes only poses compatible with selected rig")
+	panel.set_target(other_skeleton, player)
+	_check(panel._library_paths == [path_b], "switching character refreshes compatible poses automatically")
+	panel.set_target(null, null)
+	_check(panel._library_paths.is_empty() and panel.pose_list.item_count == 0, "no selected character leaves no compatible pose entries")
+	panel.set_target(skeleton, player)
+	_check(panel._library_paths == [path_a], "rebinding restores compatible pose list")
+	other_skeleton.free()
+	for filename in DirAccess.get_files_at(library_directory):
+		DirAccess.remove_absolute(library_directory.path_join(filename))
+	DirAccess.remove_absolute(library_directory)
 	panel.free()
 	character.free()
 	if failures.is_empty():

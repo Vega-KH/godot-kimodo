@@ -2,6 +2,8 @@
 class_name KimodoPoseLibraryPanel
 extends VBoxContainer
 
+signal character_pose_applied(target: Skeleton3D)
+
 const Pose := preload("res://addons/kimodo_motion/poses/pose_asset.gd")
 const Service := preload("res://addons/kimodo_motion/poses/pose_service.gd")
 const AnimationHash := preload("res://addons/kimodo_motion/domain/acceptance_service.gd")
@@ -187,6 +189,7 @@ func set_target(target: Skeleton3D, animation_player: AnimationPlayer) -> void:
 	constraint_dialog.hide()
 	skeleton = target
 	player = animation_player
+	refresh_library()
 	bone_list.clear()
 	animation_selector.clear()
 	_observed_animation = ""
@@ -220,6 +223,9 @@ func _refresh_animations() -> void:
 
 func _process(_delta: float) -> void:
 	_sync_timeline()
+	if not is_instance_valid(skeleton) and not _library_paths.is_empty():
+		pose_list.clear()
+		_library_paths.clear()
 
 
 func _sync_timeline() -> void:
@@ -434,6 +440,7 @@ func _apply_snapshot(target_ref: WeakRef, value: Resource) -> void:
 	var target: Skeleton3D = target_ref.get_ref()
 	if is_instance_valid(target):
 		Service.apply(value, target)
+		character_pose_applied.emit(target)
 		if editor_plugin != null:
 			EditorInterface.mark_scene_as_unsaved()
 
@@ -566,13 +573,14 @@ func _save_path(path: String) -> void:
 func refresh_library() -> void:
 	pose_list.clear()
 	_library_paths.clear()
-	_library_directory = DIRECTORY
+	if not is_instance_valid(skeleton):
+		return
 	# Windows can open an artist-created "Poses" folder as "poses", but resource
 	# paths must retain its actual case to avoid warnings and broken exports.
-	if OS.get_name() == "Windows" and DirAccess.dir_exists_absolute(DIRECTORY.get_base_dir()):
-		for folder in DirAccess.get_directories_at(DIRECTORY.get_base_dir()):
-			if folder.to_lower() == DIRECTORY.get_file():
-				_library_directory = DIRECTORY.get_base_dir().path_join(folder)
+	if OS.get_name() == "Windows" and DirAccess.dir_exists_absolute(_library_directory.get_base_dir()):
+		for folder in DirAccess.get_directories_at(_library_directory.get_base_dir()):
+			if folder.to_lower() == _library_directory.get_file().to_lower():
+				_library_directory = _library_directory.get_base_dir().path_join(folder)
 				break
 	var directory := DirAccess.open(_library_directory)
 	if directory == null:
@@ -584,7 +592,7 @@ func refresh_library() -> void:
 			continue
 		var path := _library_directory.path_join(file)
 		var result := Service.load_pose(path)
-		if result["ok"]:
+		if result["ok"] and result["pose"].compatibility_error(skeleton).is_empty():
 			_library_paths.append(path)
 			pose_list.add_item(result["pose"].title)
 

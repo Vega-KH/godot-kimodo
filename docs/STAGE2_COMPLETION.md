@@ -59,3 +59,29 @@ and artist animations remain outside the committed add-on.
 Checkpoint: extension's `Complete Goal 23: scene root-path and facing guides`
 commit introducing this record; backend `b0b0874` on
 `codex/milestone-0-bootstrap`.
+
+## Goal 24 — visual pose and waypoint authoring, accepted 2026-10-13
+
+The owner passed all original manual tests and both final usability additions,
+then authorized committing/pushing and stopping for discussion before the next goal.
+
+- Guide-driven Hips XZ/yaw editing with preserved height/tilt, fixed scene-node
+  placement and pose-to-guide synchronization.
+- Atomic waypoint plus complete authored pose recording, replacement, field-only
+  Undo/Redo and preservation of independently queued pose constraints.
+- Frame-labelled gold authored ghosts preserving actual finger/bone channels;
+  waypoint-only arrows, visibility, selection and offline reconstruction.
+- Selection restores at the current native frame without seeking, as explicitly
+  approved by the owner. Editor helpers are excluded from saved artist scenes.
+- AI Motion scene character selection also binds Pose Library; its saved pose
+  list filters by existing rig compatibility and refreshes when targets change.
+- 43 Godot checks, actual-editor native timeline/history/save checks, rendered
+  UI/scene review, live CUDA combined generation and fresh-process offline reuse
+  passed. See [Goal 24 acceptance](GOAL24_ACCEPTANCE.md) for measured evidence.
+
+Positional fitting, general bone gizmos and parent-node root-motion extraction
+remain deferred. Authored ghosts show artist intent; transfer/model results may
+differ. No private models or artist animations are included in the checkpoint.
+
+Checkpoint: extension's `Complete Goal 24: visual pose authoring and authored ghosts`
+commit introducing this record. Backend unchanged at `b0b0874`.

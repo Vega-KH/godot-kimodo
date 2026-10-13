@@ -790,7 +790,7 @@ func _on_generate_pressed() -> void:
 		if entry.get("target_signature", "") != _draft.target_skeleton_signature:
 			_set_draft_error("A queued pose belongs to a different rig. Remove or recapture it in Pose Library.")
 			return
-		if entry.get("profile_configuration") != _pose_profile_configuration():
+		if not RootGuidesPanel._equal(entry.get("profile_configuration"), _pose_profile_configuration()):
 			_set_draft_error("The rig profile changed after a pose was queued. Recapture its constraint in Pose Library.")
 			return
 		options.pose_constraints.append(entry["constraint"].duplicate(true))
@@ -878,7 +878,8 @@ func _on_motion_ready() -> void:
 
 
 func prepare_pose_keyframe(target: Skeleton3D, authored_pose: Resource, frame: int) -> Dictionary:
-	if _draft == null or _rig_profile == null or _client.capabilities == null:
+	var payload := pose_reference_payload()
+	if _draft == null or _rig_profile == null or payload.is_empty():
 		return {"ok": false, "message": "Open an AI Motion session, choose the matching character/profile and connect to the backend before queuing constraints."}
 	if _generation_client.state == GenerationClient.GenerationState.GENERATING:
 		return {"ok": false, "message": "Wait for generation to finish before editing constraints."}
@@ -891,7 +892,7 @@ func prepare_pose_keyframe(target: Skeleton3D, authored_pose: Resource, frame: i
 		return {"ok": false, "message": pose_problem}
 	if SessionStore.skeleton_signature(target) != _draft.target_skeleton_signature:
 		return {"ok": false, "message": "The Pose Library character does not match this session's selected rig."}
-	var canonical := PoseConverter.canonical_skeleton(_client.capabilities.skeleton_payload)
+	var canonical := PoseConverter.canonical_skeleton(payload)
 	var converted := PoseConverter.reconstruct(target, _rig_profile, canonical)
 	canonical.free()
 	if not converted["ok"]:
@@ -918,10 +919,18 @@ func prepare_pose_keyframe(target: Skeleton3D, authored_pose: Resource, frame: i
 	return {"ok": true, "entry": entry, "residuals": converted["position_residuals_m"]}
 
 
+func pose_reference_payload() -> Dictionary:
+	if _client != null and _client.capabilities != null:
+		return _client.capabilities.skeleton_payload
+	if _draft != null:
+		return _draft.root_guides.get("pose_reference", {}).get("canonical_skeleton", {})
+	return {}
+
+
 func queue_pose_keyframe(entry: Dictionary) -> Dictionary:
 	if _draft == null or entry.get("session_id") != _draft.session_id or PoseLifecycle.is_retired(_draft.session_id):
 		return {"ok": false, "message": "The active session changed. Prepare the constraint again."}
-	if _rig_profile == null or entry.get("target_signature") != _draft.target_skeleton_signature or entry.get("profile_configuration") != _pose_profile_configuration():
+	if _rig_profile == null or entry.get("target_signature") != _draft.target_skeleton_signature or not RootGuidesPanel._equal(entry.get("profile_configuration"), _pose_profile_configuration()):
 		return {"ok": false, "message": "The character/profile changed while reviewing. Prepare the constraint again."}
 	if _generation_client.state == GenerationClient.GenerationState.GENERATING:
 		return {"ok": false, "message": "Wait for generation before editing constraints."}
@@ -1013,6 +1022,50 @@ func _set_root_guides(session_id: String, intent: Dictionary) -> void:
 	_draft.root_guides = intent.duplicate(true)
 	_draft.touch()
 	_session_controller.mark_dirty()
+	root_guides_changed.emit(_draft.root_guides)
+
+
+func edit_guide_pose_state(intent: Dictionary, entries: Array[Dictionary]) -> Dictionary:
+	if _draft == null or _guide_editing_locked() or PoseLifecycle.is_retired(_draft.session_id):
+		return {"ok": false, "message": "The session is unavailable for guide editing."}
+	var checked := RootGuides.constraints(intent, entries, 900)
+	if not checked["ok"]:
+		return checked
+	var options := GenerationOptions.new()
+	options.duration_frames = 900
+	for entry in entries:
+		if entry.get("session_id") != _draft.session_id or entry.get("target_signature") != _draft.target_skeleton_signature or not RootGuidesPanel._equal(entry.get("profile_configuration"), _pose_profile_configuration()):
+			return {"ok": false, "message": "A queued pose belongs to a different session/rig/profile."}
+		options.pose_constraints.append(entry["constraint"])
+	checked = options.validate(30.0)
+	if not checked["ok"]:
+		return checked
+	var before_intent: Dictionary = _draft.root_guides.duplicate(true)
+	var before_entries: Array[Dictionary] = _draft.pose_keyframes.duplicate(true)
+	if _editor_plugin != null:
+		var undo := _editor_plugin.get_undo_redo()
+		undo.create_action("Edit Kimodo waypoint and pose", UndoRedo.MERGE_DISABLE, _draft)
+		undo.add_do_method(self, "_set_guide_pose_state", _draft.session_id, intent.duplicate(true), entries.duplicate(true))
+		undo.add_undo_method(self, "_set_guide_pose_state", _draft.session_id, before_intent, before_entries)
+		undo.commit_action()
+	else:
+		_fallback_undo_redo.create_action("Edit Kimodo waypoint and pose")
+		_fallback_undo_redo.add_do_method(Callable(self, "_set_guide_pose_state").bind(_draft.session_id, intent.duplicate(true), entries.duplicate(true)))
+		_fallback_undo_redo.add_undo_method(Callable(self, "_set_guide_pose_state").bind(_draft.session_id, before_intent, before_entries))
+		_fallback_undo_redo.commit_action()
+	return {"ok": true}
+
+
+func _set_guide_pose_state(session_id: String, intent: Dictionary, entries: Array[Dictionary]) -> void:
+	if _draft == null or _draft.session_id != session_id or PoseLifecycle.is_retired(session_id):
+		return
+	# Write both fields before notifying listeners or autosaving; never expose half
+	# a combined edit. Unrelated session intent is intentionally left untouched.
+	_draft.root_guides = intent.duplicate(true)
+	_draft.pose_keyframes = entries.duplicate(true)
+	_draft.touch()
+	_session_controller.mark_dirty()
+	pose_keyframes_changed.emit(_draft.pose_keyframes)
 	root_guides_changed.emit(_draft.root_guides)
 
 

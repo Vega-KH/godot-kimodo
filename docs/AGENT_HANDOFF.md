@@ -1,6 +1,6 @@
 # Agent handoff — start here after the product plan
 
-Reviewed: 2026-10-12. Stage 1 and Goals 22–23 are complete and owner-accepted.
+Reviewed: 2026-10-13. Stage 1 and Goals 22–24 are complete and owner-accepted.
 The owner passed all manual tests and authorized pushing Goal 22. The separate
 Pose Library supports editable character poses, native current-frame keying and
 SOMA-30 conditioning. See [Stage 2 completion](STAGE2_COMPLETION.md) and
@@ -8,15 +8,23 @@ SOMA-30 conditioning. See [Stage 2 completion](STAGE2_COMPLETION.md) and
 Goal 23 (scene root-path/facing guides) was owner-accepted 2026-10-12.
 Implementation, real-editor/rendered checks and CUDA/offline workflow pass;
 owner manual acceptance passed. See [Goal 23 acceptance](GOAL23_ACCEPTANCE.md).
-The owner authorized the checkpoint. Do not implement Goal 24 before proposal
-and approval; discuss guide-driven visual Hips authoring and root-motion behavior.
+Goal 23 checkpoints: extension `a72b239`, backend `b0b0874`, both pushed.
+Goal 24 visual Hips editing, paired pose/waypoint recording and authored ghosts
+passed developer checks and original owner manual tests on 2026-10-12.
+Final additions also passed owner testing 2026-10-13: AI Motion scene selection
+binds Pose Library, and the pose list filters to compatible rigs on target changes.
+Commit/push authorized. See [Goal 24 acceptance](GOAL24_ACCEPTANCE.md).
+The owner requested stopping before planning the next goal to discuss first.
+Selection restores the record at the current native frame, with no seek, as
+approved by the owner: public AnimationPlayer seek does not move the native
+Animation panel's playhead. Actual-editor evidence confirms cursor/player agreement.
 Owner feedback 2026-10-12 confirms guide-only generation; native scrubbing
 rounding and mixed pose/guide guidance were corrected. Keep the character scene
 node fixed; Hips bone edits carry pose root travel/turning. Both guide recording
 and pose queuing round to the nearest 30 FPS frame without seeking/resampling.
 Positional fitting, hand/foot targets and bone presets remain deferred.
 Read [the docs index](README.md) in order. Do not repeat passing checks without a
-new change or defect; the next goal remains unapproved.
+new change or defect. No next goal proposal or implementation is authorized yet.
 
 ## Workspace and checkpoints
 
@@ -64,7 +72,7 @@ From the backend repository:
 .\.venv\Scripts\python.exe -m ruff check .
 ```
 
-Latest full checks: 41 Godot checks; backend 31 passed/7 hardware-specific skips;
+Latest full checks: 43 Godot checks; backend 31 passed/7 hardware-specific skips;
 Ruff passed. Treat unexpected engine/parser errors and orphan warnings as failures.
 `scripts/test-pose-editor.ps1` additionally verifies actual editor scene-history
 Undo/Redo, native embedded animation keying and save/reload in a unique packaged
@@ -179,6 +187,21 @@ canonical rig/contact declaration. SDK supplies HTTP/glTF serialization.
   the empty artist-owned library.
 
 ## Pose-specific investigation notes
+
+Goal 24 additions: `guides/guide_pose_service.gd` owns calibrated visual Hips edits
+and snapshot restoration; `authored_pose_ghost.gd` builds temporary gold character
+ghosts with animation drivers/scripts stripped. Root guides optionally retain a
+validated canonical pose reference; combined point `pose_id` matches pose entry
+`guide_pose_id`. Paired edits write both fields before notifying listeners in one
+session-history action. Removing/clearing drops only matching linked entries;
+independent Pose Library constraints remain. Metadata is additive to schema 2.
+Pose Library application signals update the guide; paused native bone/timeline
+polling also catches edits and scrubbing, with authored pose changes taking
+precedence over a stale handle. Native guide transform Undo drives the same Hips
+conversion. Selection restoration uses scene history and keeps the native cursor
+fixed; waypoint restoration changes only Hips channels. Profile comparisons accept
+only the existing 1e-6 serialization drift tolerance. Ghosts show actual character
+channels rather than converted/model output; source archives remain immutable.
 
 Goal 23 code: `guides/root_guide_space.gd` owns scene/model root and heading
 conversion; `root_guide_service.gd` validates intent and combines it with poses;

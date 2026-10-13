@@ -1,9 +1,16 @@
 @tool
 extends VBoxContainer
 
+signal scene_character_selected(target: Skeleton3D, animation_player: AnimationPlayer)
+
 const Space := preload("res://addons/kimodo_motion/guides/root_guide_space.gd")
 const Service := preload("res://addons/kimodo_motion/guides/root_guide_service.gd")
 const Store := preload("res://addons/kimodo_motion/domain/motion_session_store.gd")
+const PoseService := preload("res://addons/kimodo_motion/poses/pose_service.gd")
+const GuidePose := preload("res://addons/kimodo_motion/guides/guide_pose_service.gd")
+const Session := preload("res://addons/kimodo_motion/domain/motion_session.gd")
+const Converter := preload("res://addons/kimodo_motion/poses/character_pose_converter.gd")
+const Ghost := preload("res://addons/kimodo_motion/guides/authored_pose_ghost.gd")
 
 var dock: Control
 var skeleton: Skeleton3D
@@ -21,6 +28,16 @@ var _pending: Dictionary = {}
 var _frames: Array[int] = []
 var _bound_scene: WeakRef
 var _bound_session_id := ""
+var edit_character: CheckBox
+var show_ghosts: CheckBox
+var pose_details: Label
+var _pose_reference: Dictionary = {}
+var _last_guide := Transform3D.IDENTITY
+var _last_hips := Transform3D.IDENTITY
+var _last_time := -1.0
+var _last_animation := ""
+var _sync_ready := false
+var _bone_undo := UndoRedo.new()
 
 
 func _ready() -> void:
@@ -29,6 +46,11 @@ func _ready() -> void:
 	_label("Root path and optional facing · active session")
 	_button("Use selected scene character", use_selection)
 	_button("Select root guide in scene", select_guide)
+	edit_character = CheckBox.new()
+	edit_character.text = "Move character with guide"
+	edit_character.tooltip_text = "Edit Hips travel/turning with the guide. Scene-node placement stays fixed. Turn off for route-only editing."
+	add_child(edit_character)
+	edit_character.toggled.connect(_toggle_character_edit)
 	_button("Match guide to queued pose at current frame", match_queued_pose)
 	current_frame = _label("Choose a character and scrub its native animation.")
 	heading_check = CheckBox.new()
@@ -36,11 +58,18 @@ func _ready() -> void:
 	add_child(heading_check)
 	_label("Move the guide with Godot's gizmos. Only ground-plane XZ travel is recorded; path lines join authored waypoints, not generated motion.")
 	_button("Record waypoint at current frame", record_current)
+	_button("Record waypoint and pose at current frame", record_pose_current)
+	pose_details = _label("Combined records capture the complete authored pose; ghosts show your intent, which can differ from generated motion.")
+	show_ghosts = CheckBox.new()
+	show_ghosts.text = "Show authored pose ghosts"
+	show_ghosts.button_pressed = true
+	add_child(show_ghosts)
+	show_ghosts.toggled.connect(func(_visible: bool) -> void: _draw_path())
 	points_list = ItemList.new()
 	points_list.custom_minimum_size.y = 140
 	add_child(points_list)
 	points_list.item_selected.connect(_select_point)
-	_button("Remove selected waypoint", remove_selected)
+	_button("Remove selected record", remove_selected)
 	_button("Clear guides / use changed placement", clear_guides)
 	_button("Show selected take in scene", show_selected_take)
 	_button("Hide scene preview", hide_scene_preview)
@@ -48,15 +77,17 @@ func _ready() -> void:
 	replace_dialog = ConfirmationDialog.new()
 	replace_dialog.title = "Replace root waypoint?"
 	replace_dialog.confirmed.connect(_commit_pending)
-	replace_dialog.canceled.connect(func() -> void: _pending.clear())
+	replace_dialog.canceled.connect(_cancel_review)
 	add_child(replace_dialog)
 	if dock != null:
 		dock.root_guides_changed.connect(set_intent)
+		dock.pose_keyframes_changed.connect(func(_entries: Array) -> void: _refresh_records())
 		set_intent(dock._draft.root_guides if dock._draft != null else {})
 
 
 func _exit_tree() -> void:
 	_detach()
+	_bone_undo.free()
 
 
 func _detach() -> void:
@@ -71,6 +102,8 @@ func _detach() -> void:
 	player = null
 	_bound_scene = null
 	_pending.clear()
+	_pose_reference.clear()
+	_sync_ready = false
 	hide_scene_preview()
 
 
@@ -88,6 +121,7 @@ func use_selection() -> void:
 		var players: Array[AnimationPlayer] = []
 		_collect(anchor, skeletons, players)
 		if skeletons.size() == 1 and players.size() == 1:
+			scene_character_selected.emit(skeletons[0], players[0])
 			set_target(skeletons[0], players[0], scene)
 			return
 		if anchor == scene:
@@ -127,6 +161,10 @@ func set_target(target: Skeleton3D, animation_player: AnimationPlayer, scene: No
 	var space: Dictionary = context["intent"]["space"]
 	guide.global_transform = Transform3D(Space.decode_transform(space["placement"]).basis.orthonormalized(), Space.model_to_world(space, Space.unvector(space["model_hips_rest"])))
 	guide.global_position.y = Space.decode_transform(space["placement"]).origin.y
+	_setup_pose_reference()
+	if edit_character.button_pressed and not _pose_reference.is_empty():
+		_follow_current_pose()
+	_prime_sync()
 	_draw_path()
 	_message("Guide ready. Move/rotate it, scrub the native animation and record a waypoint.")
 
@@ -226,8 +264,123 @@ func _process(_delta: float) -> void:
 		return
 	var frame := _frame()
 	current_frame.text = "Native frame %d · %s (nearest 30 FPS frame)" % [frame, player.assigned_animation] if frame >= 0 else "Pause and select a frame in the native animation timeline."
+	_sync_character()
+	_select_ghost_from_editor()
 	if is_instance_valid(scene_preview_player) and is_instance_valid(player) and player.is_animation_active():
 		scene_preview_player.seek(clampf(player.current_animation_position, 0, scene_preview_player.get_animation("motion").length), true, true)
+
+
+func _setup_pose_reference() -> void:
+	var saved: Dictionary = dock._draft.root_guides.get("pose_reference", {})
+	if not saved.is_empty():
+		_pose_reference = saved.duplicate(true)
+		return
+	var payload: Dictionary = dock.pose_reference_payload()
+	if payload.is_empty():
+		return
+	var created := GuidePose.create_reference(skeleton, dock._rig_profile, payload)
+	if not created["ok"]:
+		_message(created["message"])
+		return
+	_pose_reference = created["reference"]
+	var after: Dictionary = dock._draft.root_guides.duplicate(true)
+	after["pose_reference"] = _pose_reference.duplicate(true)
+	dock.edit_root_guides(after)
+
+
+func _hips_global() -> Transform3D:
+	return Converter.global_transforms(skeleton, false)[skeleton.find_bone(dock._rig_profile.target_for("Hips"))]
+
+
+func _prime_sync() -> void:
+	_sync_ready = is_instance_valid(guide) and not _pose_reference.is_empty() and is_instance_valid(player) and player.is_animation_active()
+	if not _sync_ready:
+		return
+	_last_guide = guide.global_transform
+	_last_hips = _hips_global()
+	_last_time = player.current_animation_position
+	_last_animation = player.assigned_animation
+
+
+func _toggle_character_edit(enabled: bool) -> void:
+	if not enabled:
+		_sync_ready = false
+		return
+	if _pose_reference.is_empty() or not check_current_binding()["ok"]:
+		edit_character.set_pressed_no_signal(false)
+		_message("Bind the character and connect once to establish its pose reference before visual editing.")
+		return
+	_follow_current_pose()
+	_prime_sync()
+
+
+func _follow_current_pose() -> void:
+	var current := GuidePose.current_guide(skeleton, dock._rig_profile, dock._draft.root_guides["space"], _pose_reference)
+	if current["ok"]:
+		guide.global_transform = current["transform"]
+	else:
+		_message(current["message"])
+
+
+func _sync_character() -> void:
+	if edit_character == null or not edit_character.button_pressed or _pose_reference.is_empty() or not is_instance_valid(guide):
+		return
+	if _frame() < 0:
+		_sync_ready = false
+		return
+	if not check_current_binding()["ok"]:
+		_sync_ready = false
+		return
+	var hips := _hips_global()
+	var time := player.current_animation_position
+	if not _sync_ready or time != _last_time or player.assigned_animation != _last_animation or not hips.is_equal_approx(_last_hips):
+		# Bone edits/application or native scrubbing wins over a stale handle.
+		_follow_current_pose()
+	elif not guide.global_transform.is_equal_approx(_last_guide):
+		var changed := GuidePose.apply_guide(skeleton, dock._rig_profile, dock._draft.root_guides["space"], _pose_reference, guide.global_transform)
+		if changed["ok"]:
+			_follow_current_pose()
+			if dock._editor_plugin != null:
+				EditorInterface.mark_scene_as_unsaved()
+		else:
+			_message(changed["message"])
+	_prime_sync()
+
+
+func pose_applied(target: Skeleton3D) -> void:
+	if target == skeleton and edit_character.button_pressed and is_instance_valid(guide) and not _pose_reference.is_empty() and check_current_binding()["ok"]:
+		_follow_current_pose()
+		_prime_sync()
+
+
+func _refresh_records() -> void:
+	if dock != null and dock._draft != null:
+		set_intent(dock._draft.root_guides)
+
+
+func _linked_pose(point: Dictionary) -> Dictionary:
+	if not point.has("pose_id"):
+		return {}
+	for entry in dock._draft.pose_keyframes:
+		if entry.get("guide_pose_id") == point["pose_id"] and entry["frame"] == point["frame"] and entry["target_signature"] == dock._draft.target_skeleton_signature and _equal(entry.get("profile_configuration"), dock._pose_profile_configuration()):
+			return entry
+	return {}
+
+
+func _select_ghost_from_editor() -> void:
+	if dock._editor_plugin == null or not is_instance_valid(path_node):
+		return
+	var selected := EditorInterface.get_selection().get_selected_nodes()
+	if selected.size() != 1:
+		return
+	var node: Node = selected[0]
+	while node != null and node != path_node:
+		if node.has_meta("kimodo_authored_frame"):
+			var frame: int = node.get_meta("kimodo_authored_frame")
+			if node.get_meta("kimodo_session_id") == dock._draft.session_id and _frames.has(frame):
+				_select_point(_frames.find(frame))
+			return
+		node = node.get_parent()
 
 
 func hide_scene_preview() -> void:
@@ -311,6 +464,14 @@ func match_queued_pose() -> void:
 
 
 func record_current() -> void:
+	_record_current(false)
+
+
+func record_pose_current() -> void:
+	_record_current(true)
+
+
+func _record_current(with_pose: bool) -> void:
 	var ready := check_current_binding()
 	if not ready["ok"]:
 		_message(ready["message"])
@@ -319,6 +480,29 @@ func record_current() -> void:
 	if frame < 0 or frame >= dock._draft.duration_frames or not is_instance_valid(guide):
 		_message("Choose a paused native time whose nearest 30 FPS frame is within the session duration.")
 		return
+	_sync_character()
+	var entry := {}
+	if with_pose:
+		var captured := _capture_complete()
+		if not captured["ok"]:
+			_message(captured["message"])
+			return
+		var prepared: Dictionary = dock.prepare_pose_keyframe(skeleton, captured["pose"], frame)
+		if not prepared["ok"]:
+			_message(prepared["message"])
+			return
+		entry = prepared["entry"]
+		entry["guide_pose_id"] = Session.create_uuid()
+		# Record the pose's exact converted root/facing, including calibrated
+		# neutral offsets. The authored ghost still uses the original channels.
+		var root := Space.model_to_world(dock._draft.root_guides["space"], Space.unvector(entry["constraint"]["root_position"]))
+		var q: Array = entry["constraint"]["joint_rotations"]["Hips"]
+		var lateral := Quaternion(q[0], q[1], q[2], q[3]) * Vector3.LEFT
+		root.y = Space.decode_transform(dock._draft.root_guides["space"]["placement"]).origin.y
+		guide.global_transform = Transform3D(Basis(Vector3.UP, Space.model_heading_to_world(dock._draft.root_guides["space"], atan2(lateral.z, -lateral.x))), root)
+		_prime_sync()
+		var residuals: Dictionary = prepared["residuals"]
+		pose_details.text = "Authored pose → SOMA position differences (m): hands %.4f / %.4f; feet %.4f / %.4f. Ghosts retain your actual pose." % [residuals["LeftHand"], residuals["RightHand"], residuals["LeftFoot"], residuals["RightFoot"]]
 	var direction := guide.global_basis * Vector3.FORWARD * -1
 	if not guide.global_transform.is_finite() or Vector2(direction.x, direction.z).length_squared() < 0.000001:
 		_message("The guide transform/facing is invalid. Keep its +Z arrow horizontal.")
@@ -326,36 +510,95 @@ func record_current() -> void:
 	var position := guide.global_position
 	position.y = Space.decode_transform(dock._draft.root_guides["space"]["placement"]).origin.y
 	var point := {"frame": frame, "world_position": Space.vector(position), "world_heading": atan2(direction.x, direction.z), "use_heading": heading_check.button_pressed}
-	_pending = {"session_id": dock._draft.session_id, "before": dock._draft.root_guides.duplicate(true), "point": point, "time": player.current_animation_position, "animation": player.assigned_animation}
+	if with_pose:
+		point["pose_id"] = entry["guide_pose_id"]
+	_pending = {"session_id": dock._draft.session_id, "before": dock._draft.root_guides.duplicate(true), "before_poses": dock._draft.pose_keyframes.duplicate(true), "entry": entry, "point": point, "time": player.current_animation_position, "animation": player.assigned_animation, "guide": guide.global_transform}
+	var collision := false
 	for existing in dock._draft.root_guides["points"]:
 		if existing["frame"] == frame:
-			replace_dialog.dialog_text = "Replace the root waypoint at frame %d?" % frame
-			replace_dialog.popup_centered()
-			return
+			collision = true
+	for existing in dock._draft.pose_keyframes:
+		if with_pose and existing["frame"] == frame:
+			collision = true
+	if collision:
+		replace_dialog.dialog_text = "Replace the waypoint%s at frame %d? A previous linked pose is removed with its waypoint. Independent poses are replaced only when recording a new complete pose." % [" and complete pose" if with_pose else "", frame]
+		replace_dialog.popup_centered()
+		return
 	_commit_pending()
+
+
+func _capture_complete() -> Dictionary:
+	var channels := {}
+	for index in skeleton.get_bone_count():
+		channels[String(skeleton.get_bone_name(index))] = PoseService.KINDS
+	return PoseService.capture(skeleton, "Authored guide pose", channels)
+
+
+func _complete_channels() -> Array:
+	var channels: Array = []
+	for index in skeleton.get_bone_count():
+		var bone := String(skeleton.get_bone_name(index))
+		var q := skeleton.get_bone_pose_rotation(index)
+		channels.append({"bone": bone, "kind": Animation.TYPE_POSITION_3D, "value": Space.vector(skeleton.get_bone_pose_position(index))})
+		channels.append({"bone": bone, "kind": Animation.TYPE_ROTATION_3D, "value": [q.x, q.y, q.z, q.w]})
+		channels.append({"bone": bone, "kind": Animation.TYPE_SCALE_3D, "value": Space.vector(skeleton.get_bone_pose_scale(index))})
+	return channels
 
 
 func _commit_pending() -> void:
 	replace_dialog.hide()
 	if _pending.is_empty():
 		return
+	if _pending.get("operation") == "clear":
+		if dock._draft != null and not dock._guide_editing_locked() and dock._draft.session_id == _pending["session_id"] and dock._draft.root_guides == _pending["before"] and dock._draft.pose_keyframes == _pending["before_poses"]:
+			_clear_now()
+		else:
+			_message("The session changed while reviewing. Clear again.")
+		_pending.clear()
+		return
 	var ready := check_current_binding()
-	if not ready["ok"] or dock._draft.session_id != _pending["session_id"] or dock._draft.root_guides != _pending["before"] or not player.active or player.is_playing() or not player.is_animation_active() or player.current_animation_position != _pending["time"] or player.assigned_animation != _pending["animation"]:
+	if not ready["ok"] or dock._draft.session_id != _pending["session_id"] or dock._draft.root_guides != _pending["before"] or dock._draft.pose_keyframes != _pending["before_poses"] or not player.active or player.is_playing() or not player.is_animation_active() or player.current_animation_position != _pending["time"] or player.assigned_animation != _pending["animation"] or not guide.global_transform.is_equal_approx(_pending["guide"]):
 		_pending.clear()
 		_message("The destination changed while reviewing. Record the waypoint again.")
 		return
+	var entry: Dictionary = _pending["entry"]
+	if not entry.is_empty() and entry["authored_channels"] != _complete_channels():
+		_pending.clear()
+		_message("The character pose changed while reviewing. Record again.")
+		return
 	var after: Dictionary = _pending["before"].duplicate(true)
+	var entries: Array[Dictionary] = _pending["before_poses"].duplicate(true)
 	for index in range(after["points"].size() - 1, -1, -1):
 		if after["points"][index]["frame"] == _pending["point"]["frame"]:
+			_remove_linked_entry(entries, after["points"][index])
 			after["points"].remove_at(index)
+	if not entry.is_empty():
+		for index in range(entries.size() - 1, -1, -1):
+			if entries[index]["frame"] == entry["frame"]:
+				entries.remove_at(index)
+		entries.append(entry)
+		entries.sort_custom(func(a: Dictionary, b: Dictionary) -> bool: return a["frame"] < b["frame"])
 	after["points"].append(_pending["point"])
 	_pending.clear()
-	var checked := Service.constraints(after, dock._draft.pose_keyframes, dock._draft.duration_frames)
+	var checked := Service.constraints(after, entries, dock._draft.duration_frames)
 	if not checked["ok"]:
 		_message(checked["message"])
 		return
-	dock.edit_root_guides(after)
-	_message("Waypoint recorded. Review the route, then Generate.")
+	checked = dock.edit_guide_pose_state(after, entries)
+	_message("Waypoint%s recorded. Review the authored sequence, then Generate." % [" and complete pose" if not entry.is_empty() else ""] if checked["ok"] else checked["message"])
+
+
+func _cancel_review() -> void:
+	_pending.clear()
+	replace_dialog.hide()
+
+
+static func _remove_linked_entry(entries: Array[Dictionary], point: Dictionary) -> void:
+	if not point.has("pose_id"):
+		return
+	for index in range(entries.size() - 1, -1, -1):
+		if entries[index].get("guide_pose_id") == point["pose_id"] and entries[index]["frame"] == point["frame"]:
+			entries.remove_at(index)
 
 
 func remove_selected() -> void:
@@ -365,17 +608,36 @@ func remove_selected() -> void:
 	if selected.is_empty():
 		return
 	var after: Dictionary = dock._draft.root_guides.duplicate(true)
+	var entries: Array[Dictionary] = dock._draft.pose_keyframes.duplicate(true)
 	for index in range(after["points"].size() - 1, -1, -1):
 		if after["points"][index]["frame"] == _frames[selected[0]]:
+			_remove_linked_entry(entries, after["points"][index])
 			after["points"].remove_at(index)
-	dock.edit_root_guides(after)
+	var changed: Dictionary = dock.edit_guide_pose_state(after, entries)
+	_message("Record removed with its linked pose. Undo is available." if changed["ok"] else changed["message"])
 
 
 func clear_guides() -> void:
 	if dock != null and dock._draft != null and not dock._guide_editing_locked():
-		dock.edit_root_guides({})
+		for point in dock._draft.root_guides.get("points", []):
+			if not _linked_pose(point).is_empty():
+				_pending = {"operation": "clear", "session_id": dock._draft.session_id, "before": dock._draft.root_guides.duplicate(true), "before_poses": dock._draft.pose_keyframes.duplicate(true)}
+				replace_dialog.dialog_text = "Clear all waypoints and their linked complete poses? Independent Pose Library constraints are kept. Undo restores the records."
+				replace_dialog.popup_centered()
+				return
+		_clear_now()
+
+
+func _clear_now() -> void:
+	var entries: Array[Dictionary] = dock._draft.pose_keyframes.duplicate(true)
+	for point in dock._draft.root_guides.get("points", []):
+		_remove_linked_entry(entries, point)
+	var changed: Dictionary = dock.edit_guide_pose_state({}, entries)
+	if changed["ok"]:
 		_detach()
-		_message("Guides cleared with Undo available. Select the character again to use its current placement.")
+		_message("Guides and linked poses cleared with Undo available. Independent constraints kept. Select the character again to use its current placement.")
+	else:
+		_message(changed["message"])
 
 
 func set_intent(intent: Dictionary) -> void:
@@ -394,18 +656,76 @@ func set_intent(intent: Dictionary) -> void:
 	points.sort_custom(func(a: Dictionary, b: Dictionary) -> bool: return a["frame"] < b["frame"])
 	for point in points:
 		_frames.append(point["frame"])
-		points_list.add_item("Frame %d%s" % [point["frame"], " · facing" if point["use_heading"] else ""])
+		points_list.add_item("Frame %d%s%s" % [point["frame"], " · pose" if not _linked_pose(point).is_empty() else " · waypoint", " · facing" if point["use_heading"] else ""])
 	_draw_path()
 
 
 func _select_point(index: int) -> void:
-	if not is_instance_valid(guide) or dock._draft == null:
+	if not is_instance_valid(guide) or dock._draft == null or index < 0 or index >= _frames.size() or not check_current_binding()["ok"] or _frame() < 0:
 		return
 	for point in dock._draft.root_guides["points"]:
 		if point["frame"] == _frames[index]:
+			var entry := _linked_pose(point)
+			if not entry.is_empty():
+				_restore_recorded_pose(entry)
 			guide.global_transform = Transform3D(Basis(Vector3.UP, point["world_heading"]), Space.unvector(point["world_position"]))
 			heading_check.button_pressed = point["use_heading"]
+			points_list.select(index)
+			if entry.is_empty() and edit_character.button_pressed:
+				_prime_sync()
+				var moved := GuidePose.guide_edit(skeleton, dock._rig_profile, dock._draft.root_guides["space"], _pose_reference, guide.global_transform) if not _pose_reference.is_empty() else {"ok": false}
+				if moved["ok"]:
+					var local: Transform3D = moved["pose"]
+					var q := local.basis.get_rotation_quaternion()
+					var bone := String(skeleton.get_bone_name(moved["bone"]))
+					_record_bone_channels([
+						{"bone": bone, "kind": Animation.TYPE_POSITION_3D, "value": Space.vector(local.origin)},
+						{"bone": bone, "kind": Animation.TYPE_ROTATION_3D, "value": [q.x, q.y, q.z, q.w]},
+						{"bone": bone, "kind": Animation.TYPE_SCALE_3D, "value": Space.vector(local.basis.get_scale())},
+					])
+			_prime_sync()
 			select_guide()
+			_message("Record %d restored at current frame %d. Record here to copy it, or scrub to %d before replacing the original." % [point["frame"], _frame(), point["frame"]])
+			return
+
+
+func _restore_recorded_pose(entry: Dictionary) -> void:
+	_record_bone_channels(entry["authored_channels"])
+
+
+func _record_bone_channels(channels: Array) -> void:
+	var checked := GuidePose.channel_error(channels, skeleton)
+	if not checked.is_empty():
+		_message(checked)
+		return
+	var included := {}
+	for channel in channels:
+		included["%s:%d" % [channel["bone"], channel["kind"]]] = true
+	var before := _complete_channels().filter(func(channel: Dictionary) -> bool: return included.has("%s:%d" % [channel["bone"], channel["kind"]]))
+	var target := weakref(skeleton)
+	if dock._editor_plugin != null:
+		var undo: Object = dock._editor_plugin.get_undo_redo()
+		undo.create_action("Restore authored guide pose", UndoRedo.MERGE_DISABLE, skeleton)
+		undo.add_do_method(self, "_restore_bones", target, channels.duplicate(true))
+		undo.add_undo_method(self, "_restore_bones", target, before)
+		undo.commit_action()
+	else:
+		_bone_undo.create_action("Restore authored guide pose")
+		_bone_undo.add_do_method(Callable(self, "_restore_bones").bind(target, channels.duplicate(true)))
+		_bone_undo.add_undo_method(Callable(self, "_restore_bones").bind(target, before))
+		_bone_undo.commit_action()
+
+
+func _restore_bones(target_ref: WeakRef, channels: Array) -> void:
+	var target: Skeleton3D = target_ref.get_ref()
+	if not is_instance_valid(target):
+		return
+	GuidePose.restore_channels(target, channels)
+	if target == skeleton and is_instance_valid(guide) and not _pose_reference.is_empty() and check_current_binding()["ok"]:
+		_follow_current_pose()
+		_prime_sync()
+	if dock._editor_plugin != null:
+		EditorInterface.mark_scene_as_unsaved()
 
 
 func _draw_path() -> void:
@@ -429,16 +749,32 @@ func _draw_path() -> void:
 		mesh.surface_end()
 		_mesh(path_node, mesh, Transform3D.IDENTITY)
 	for point in points:
-		var marker := SphereMesh.new()
-		marker.radius = 0.035
-		marker.height = 0.07
 		var position := Space.unvector(point["world_position"])
-		_mesh(path_node, marker, Transform3D(Basis.IDENTITY, position))
+		var entry := _linked_pose(point)
+		var ghost_visible := not entry.is_empty() and show_ghosts.button_pressed
+		var label_position := position + Vector3.UP * 0.15
+		if ghost_visible and dock._character_target != null:
+			var created := Ghost.create(dock._character_target, entry, path_node, Space.decode_transform(dock._draft.root_guides["space"]["placement"]))
+			if created["ok"]:
+				var ghost_skeleton: Skeleton3D = created["skeleton"]
+				var head: int = ghost_skeleton.find_bone(dock._rig_profile.target_for("Head"))
+				if head >= 0:
+					label_position.y = (ghost_skeleton.global_transform * ghost_skeleton.get_bone_global_pose(head).origin).y + 0.25
+			else:
+				_message(created["message"])
+		elif entry.is_empty():
+			var marker := CylinderMesh.new()
+			marker.top_radius = 0
+			marker.bottom_radius = 0.05
+			marker.height = 0.18
+			_mesh(path_node, marker, Transform3D(Basis(Vector3.UP, point["world_heading"]) * Basis(Vector3.RIGHT, PI / 2), position + Vector3.UP * 0.07))
 		var label := Label3D.new()
 		label.text = str(point["frame"])
+		label.modulate = Color(1.0, 0.75, 0.35) if not entry.is_empty() else Color(0.4, 0.95, 1.0)
 		label.billboard = BaseMaterial3D.BILLBOARD_ENABLED
+		label.visible = entry.is_empty() or show_ghosts.button_pressed
 		path_node.add_child(label)
-		label.global_position = position + Vector3.UP * 0.15
+		label.global_position = label_position
 
 
 static func _mesh(parent: Node3D, mesh: Mesh, transform: Transform3D) -> void:

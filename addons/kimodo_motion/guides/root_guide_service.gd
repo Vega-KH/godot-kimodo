@@ -11,6 +11,12 @@ static func validation_error(intent: Dictionary, duration := 900) -> String:
 	if intent.get("version") != 1 or not intent.get("points") is Array or not intent.get("space") is Dictionary:
 		return "Root guide data is incomplete or unsupported."
 	var space: Dictionary = intent["space"]
+	if intent.has("pose_reference"):
+		if not intent["pose_reference"] is Dictionary:
+			return "Guide pose reference is invalid."
+		var reference_problem := preload("res://addons/kimodo_motion/guides/guide_pose_service.gd").validation_error(intent["pose_reference"])
+		if not reference_problem.is_empty():
+			return reference_problem
 	if space.get("version") != 1 or not _numbers(space.get("neutral_hips"), 3) or not _numbers(space.get("model_hips_rest"), 3):
 		return "Root guide reference positions are invalid."
 	var placement: Variant = space.get("placement")
@@ -42,6 +48,8 @@ static func validation_error(intent: Dictionary, duration := 900) -> String:
 		seen[frame] = true
 		if not _numbers(point.get("world_position"), 3) or not point.get("use_heading") is bool or not _number(point.get("world_heading")):
 			return "Root guide position/facing must be finite."
+		if point.has("pose_id") and (not point["pose_id"] is String or point["pose_id"].is_empty()):
+			return "Combined pose waypoint identity is invalid."
 	return ""
 
 

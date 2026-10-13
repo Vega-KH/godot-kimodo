@@ -29,6 +29,8 @@ func _enter_tree() -> void:
 	_pose_panel.queue_constraint = Callable(_dock, "queue_pose_keyframe")
 	_pose_panel.remove_constraint = Callable(_dock, "remove_pose_keyframe")
 	_dock.pose_keyframes_changed.connect(_pose_panel.set_constraint_entries)
+	_pose_panel.character_pose_applied.connect(_dock._guides_panel.pose_applied)
+	_dock._guides_panel.scene_character_selected.connect(_pose_panel.set_target)
 	print("[Kimodo Motion Studio] editor plugin enabled")
 
 
